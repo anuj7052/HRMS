@@ -6,6 +6,7 @@ interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithMicrosoftToken: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
 }
@@ -62,8 +63,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(res.data.user);
   };
 
+  const loginWithMicrosoftToken = async (idToken: string) => {
+    const res = await api.post('/auth/microsoft', { idToken });
+    sessionStorage.setItem('accessToken', res.data.accessToken);
+    setUser(res.data.user);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, isLoading, login, loginWithMicrosoftToken, logout, isAuthenticated: !!user }}>
       {children}
     </AuthContext.Provider>
   );

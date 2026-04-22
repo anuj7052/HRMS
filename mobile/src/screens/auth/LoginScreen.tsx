@@ -6,6 +6,7 @@ import { palette, useTheme } from '@/theme';
 import { useAppDispatch } from '@/store';
 import { loginSuccess } from '@/store/authSlice';
 import { loginWithCredentials } from '@/services/api';
+import { signInWithMicrosoft } from '@/services/microsoftAuth';
 
 const LoginScreen: React.FC<any> = ({ navigation }) => {
   const t = useTheme();
@@ -14,6 +15,7 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [msLoading, setMsLoading] = useState(false);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -62,6 +64,39 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
+  const onMicrosoftLogin = async () => {
+    setMsLoading(true);
+    setErrors({});
+    try {
+      const data = await signInWithMicrosoft();
+      dispatch(loginSuccess({
+        user: {
+          id: data.user.id,
+          name: data.user.name,
+          email: data.user.email,
+          role: (data.user.role?.toLowerCase() as any) || 'employee',
+          empCode: data.user.id,
+          phone: '',
+          department: data.user.department || '',
+          designation: '',
+          joinedOn: '',
+          active: true,
+          workMode: 'WFO',
+          avatar: '',
+          shift: 'Flexible' as any,
+        },
+        token: data.accessToken,
+      }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Microsoft sign-in failed';
+      if (!message.toLowerCase().includes('cancelled')) {
+        Alert.alert('Microsoft sign-in failed', message);
+      }
+    } finally {
+      setMsLoading(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.colors.background }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'center' }}>
@@ -95,6 +130,46 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
         />
 
         <Button title="Login" onPress={onLogin} loading={loading} />
+
+        {/* ── OR divider ──────────────────────────────────────────── */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 18 }}>
+          <View style={{ flex: 1, height: 1, backgroundColor: t.colors.border }} />
+          <Text style={{ marginHorizontal: 12, color: t.colors.textMuted, fontSize: 12, fontWeight: '600' }}>OR</Text>
+          <View style={{ flex: 1, height: 1, backgroundColor: t.colors.border }} />
+        </View>
+
+        {/* ── Microsoft sign-in button ────────────────────────────── */}
+        <Pressable
+          onPress={onMicrosoftLogin}
+          disabled={msLoading || loading}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: t.colors.border,
+            backgroundColor: pressed ? t.colors.surfaceAlt : t.colors.surface,
+            opacity: msLoading || loading ? 0.6 : 1,
+          })}
+        >
+          {/* Microsoft 4-square logo (View-based) */}
+          <View style={{ width: 18, height: 18, marginRight: 10 }}>
+            <View style={{ flexDirection: 'row' }}>
+              <View style={{ width: 8, height: 8, backgroundColor: '#F25022', marginRight: 2, marginBottom: 2 }} />
+              <View style={{ width: 8, height: 8, backgroundColor: '#7FBA00', marginBottom: 2 }} />
+            </View>
+            <View style={{ flexDirection: 'row' }}>
+              <View style={{ width: 8, height: 8, backgroundColor: '#00A4EF', marginRight: 2 }} />
+              <View style={{ width: 8, height: 8, backgroundColor: '#FFB900' }} />
+            </View>
+          </View>
+          <Text style={{ color: t.colors.text, fontSize: 15, fontWeight: '600' }}>
+            {msLoading ? 'Connecting to Microsoft…' : 'Sign in with Microsoft'}
+          </Text>
+        </Pressable>
 
         <Pressable onPress={() => navigation.navigate('ForgotPassword')} style={{ alignSelf: 'center', marginTop: 16 }}>
           <Text style={{ color: t.colors.primary, fontWeight: '600' }}>Forgot password?</Text>

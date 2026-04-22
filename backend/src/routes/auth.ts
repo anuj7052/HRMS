@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { User } from '../models/User';
 import { AppSettings } from '../models/AppSettings';
 import { sendEmail } from '../services/emailService';
@@ -203,7 +204,95 @@ router.post(
   }
 );
 
-// ─── POST /api/auth/refresh ──────────────────────────────────────────────────
+// ─── POST /api/auth/microsoft ───────────────────────────────────────────────
+// Verifies a Microsoft (Azure AD) ID token and signs the user in (creates if new).
+const MS_TENANT = process.env.AZURE_AD_TENANT_ID || 'common';
+const MS_CLIENT_ID = process.env.AZURE_AD_CLIENT_ID || '';
+const msJwks = MS_CLIENT_ID
+  ? createRemoteJWKSet(new URL(`https://login.microsoftonline.com/${MS_TENANT}/discovery/v2.0/keys`))
+  : null;
+
+router.post('/microsoft', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { idToken } = req.body as { idToken?: string };
+    if (!idToken) {
+      res.status(400).json({ message: 'idToken required' });
+      return;
+    }
+    if (!MS_CLIENT_ID || !msJwks) {
+      res.status(500).json({ message: 'Microsoft login not configured on server (AZURE_AD_CLIENT_ID missing)' });
+      return;
+    }
+
+    const issuers = [
+      `https://login.microsoftonline.com/${MS_TENANT}/v2.0`,
+      `https://sts.windows.net/${MS_TENANT}/`,
+    ];
+
+    const { payload } = await jwtVerify(idToken, msJwks, {
+      audience: MS_CLIENT_ID,
+      issuer: issuers,
+    });
+
+    const email = (payload.email || payload.preferred_username || payload.upn) as string | undefined;
+    const name = (payload.name as string | undefined) || (email ? email.split('@')[0] : 'User');
+
+    if (!email) {
+      res.status(400).json({ message: 'Microsoft token did not contain an email/UPN' });
+      return;
+    }
+
+    const lowerEmail = email.toLowerCase().trim();
+    const allowedDomains = await getAllowedDomains();
+    if (!isDomainAllowed(lowerEmail, allowedDomains)) {
+      res.status(403).json({ message: `Email domain not allowed. Allowed: ${allowedDomains.join(', ')}` });
+      return;
+    }
+
+    let user = await User.findOne({ email: lowerEmail }).select('+refreshToken');
+    if (!user) {
+      // Auto-provision: create a new Employee. Random password (user can reset later).
+      const randomPass = crypto.randomBytes(24).toString('hex');
+      const passwordHash = await bcrypt.hash(randomPass, BCRYPT_ROUNDS);
+      user = await User.create({
+        name,
+        email: lowerEmail,
+        passwordHash,
+        role: 'Employee',
+        isEmailVerified: true,
+      });
+    } else if (!user.isEmailVerified) {
+      user.isEmailVerified = true;
+    }
+
+    const accessToken = generateAccessToken(String(user._id), user.email, user.role);
+    const refreshToken = generateRefreshToken(String(user._id));
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    res
+      .cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/api/auth/refresh',
+      })
+      .json({
+        accessToken,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          department: user.department,
+        },
+      });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Microsoft sign-in failed';
+    res.status(401).json({ message: `Microsoft sign-in failed: ${msg}` });
+  }
+});
 router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
   const token = req.cookies?.refreshToken as string | undefined;
   if (!token) {

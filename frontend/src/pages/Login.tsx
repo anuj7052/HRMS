@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useMsal } from '@azure/msal-react';
+import { msalLoginRequest, msalConfigured } from '../lib/msal';
 import toast from 'react-hot-toast';
 
 const DEMO_ACCOUNTS = [
@@ -12,7 +14,8 @@ const DEMO_ACCOUNTS = [
 ];
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithMicrosoftToken } = useAuth();
+  const { instance: msalInstance } = useMsal();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
@@ -20,6 +23,7 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [msLoading, setMsLoading] = useState(false);
   const [fieldErr, setFieldErr] = useState<{ email?: string; password?: string; general?: string }>({});
 
   function validate() {
@@ -54,6 +58,32 @@ export default function LoginPage() {
     setEmail(acc.email);
     setPassword(acc.password);
     setFieldErr({});
+  }
+
+  async function handleMicrosoftLogin() {
+    if (!msalConfigured) {
+      toast.error('Microsoft login is not configured. Set VITE_AZURE_AD_CLIENT_ID in frontend/.env');
+      return;
+    }
+    setMsLoading(true);
+    try {
+      const result = await msalInstance.loginPopup(msalLoginRequest);
+      const idToken = result.idToken;
+      if (!idToken) throw new Error('No ID token returned by Microsoft');
+      await loginWithMicrosoftToken(idToken);
+      toast.success(`Welcome, ${result.account?.name || result.account?.username || 'user'}!`);
+      navigate('/dashboard');
+    } catch (err: unknown) {
+      const e = err as { errorCode?: string; message?: string; response?: { data?: { message?: string } } };
+      if (e?.errorCode === 'user_cancelled') {
+        // user closed the popup — silently ignore
+      } else {
+        const msg = e?.response?.data?.message || e?.message || 'Microsoft sign-in failed';
+        toast.error(msg);
+      }
+    } finally {
+      setMsLoading(false);
+    }
   }
 
   return (
@@ -194,6 +224,42 @@ export default function LoginPage() {
           )}
         </button>
       </form>
+
+      {/* ── OR divider ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+        <span className="text-xs text-gray-400 uppercase tracking-wider">or continue with</span>
+        <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+      </div>
+
+      {/* ── Microsoft sign-in button ───────────────────────────── */}
+      <button
+        type="button"
+        onClick={handleMicrosoftLogin}
+        disabled={msLoading || loading}
+        className="w-full py-2.5 px-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-100 text-sm font-semibold transition-all flex items-center justify-center gap-3 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {msLoading ? (
+          <>
+            <svg className="w-4 h-4 animate-spin text-primary-600" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Connecting to Microsoft…
+          </>
+        ) : (
+          <>
+            {/* Official Microsoft 4-square logo */}
+            <svg className="w-[18px] h-[18px]" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+              <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+              <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+              <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+            </svg>
+            Sign in with Microsoft
+          </>
+        )}
+      </button>
 
       {/* Divider */}
       <div className="flex items-center gap-3">

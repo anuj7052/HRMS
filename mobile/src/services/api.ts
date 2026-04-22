@@ -32,6 +32,7 @@ const API_BASE_CANDIDATES = Array.from(
       getMetroBaseUrl(),
       ...platformFallbacks,
       'http://192.168.2.177:5000/api',
+      'https://smarthrms-backend.azurewebsites.net/api',
     ].filter(Boolean)
   )
 ) as string[];

@@ -3,6 +3,7 @@
     "name": "SmartHRMS",
     "slug": "smarthrms",
     "version": "1.0.0",
+    "scheme": "msauth.com.smarthrms.app",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "splash": {
