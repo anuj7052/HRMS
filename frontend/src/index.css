@@ -1,0 +1,120 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    @apply font-sans text-gray-900 bg-[#F5F7FB] dark:bg-[#0B1220] dark:text-gray-100;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-gray-300 dark:bg-gray-700 rounded-full; }
+}
+
+@layer components {
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply bg-primary-600 text-white px-4 py-2 rounded-xl hover:bg-primary-700 active:scale-95 transition-all font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary-600/25;
+  }
+  .btn-secondary {
+    @apply bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 active:scale-95 transition-all font-semibold text-sm;
+  }
+  .btn-danger {
+    @apply text-white px-4 py-2 rounded-xl active:scale-95 transition-all font-semibold text-sm shadow-md;
+    background-color: #DC2626;
+    box-shadow: 0 10px 15px -3px rgb(220 38 38 / 0.25), 0 4px 6px -4px rgb(220 38 38 / 0.25);
+  }
+  .btn-danger:hover {
+    background-color: #B91C1C;
+  }
+  .btn-success {
+    @apply text-white px-4 py-2 rounded-xl active:scale-95 transition-all font-semibold text-sm shadow-md;
+    background-color: #16A34A;
+    box-shadow: 0 10px 15px -3px rgb(22 163 74 / 0.25), 0 4px 6px -4px rgb(22 163 74 / 0.25);
+  }
+  .btn-success:hover {
+    background-color: #15803D;
+  }
+
+  /* ── Inputs ── */
+  .input {
+    @apply w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm placeholder-gray-400 transition;
+  }
+
+  /* ── Cards — match mobile Card component ── */
+  .card {
+    @apply bg-white dark:bg-[#111B2E] rounded-2xl border border-gray-100 dark:border-[#1F2E49] shadow-sm;
+  }
+  .card-elevated {
+    @apply bg-white dark:bg-[#111B2E] rounded-2xl border border-gray-100 dark:border-[#1F2E49] shadow-md;
+  }
+
+  /* ── Skeleton ── */
+  .skeleton {
+    @apply animate-skeleton bg-gray-200 dark:bg-gray-700/60 rounded-xl;
+  }
+
+  /* ── Badges — match mobile statusColor ── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold;
+  }
+  .badge-green  {
+    @apply badge;
+    background-color: rgb(22 163 74 / 0.1);
+    color: #16A34A;
+  }
+  .dark .badge-green {
+    color: #4ADE80;
+  }
+  .badge-red    {
+    @apply badge;
+    background-color: rgb(220 38 38 / 0.1);
+    color: #DC2626;
+  }
+  .dark .badge-red {
+    color: #F87171;
+  }
+  .badge-yellow {
+    @apply badge;
+    background-color: rgb(245 158 11 / 0.1);
+    color: #D97706;
+  }
+  .dark .badge-yellow {
+    color: #FBBF24;
+  }
+  .badge-blue   { @apply badge bg-primary-500/10 text-primary-600 dark:text-primary-400; }
+  .badge-gray   { @apply badge bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300; }
+
+  /* ── Hero gradient header (matches mobile DashboardScreen hero) ── */
+  .hero-header {
+    background: linear-gradient(135deg, #1A3C6E 0%, #0F2747 100%);
+    @apply text-white;
+  }
+
+  /* ── Stat tiles ── */
+  .stat-tile {
+    @apply flex-1 flex flex-col items-center justify-center rounded-xl py-3 px-2 border;
+  }
+  .stat-tile-value { @apply text-2xl font-black; }
+  .stat-tile-label { @apply text-[10px] font-medium text-center mt-0.5; }
+
+  /* ── Section heading ── */
+  .section-title {
+    @apply text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-3;
+  }
+
+  /* ── Action tiles (matches mobile ActionTile) ── */
+  .action-tile {
+    @apply flex flex-col items-start p-4 rounded-2xl border border-gray-100 dark:border-[#1F2E49] bg-white dark:bg-[#111B2E] shadow-sm hover:shadow-md active:scale-95 transition-all cursor-pointer;
+  }
+  .action-tile-icon {
+    @apply relative w-11 h-11 rounded-xl flex items-center justify-center mb-3;
+  }
+  .action-tile-label {
+    @apply text-sm font-bold text-gray-900 dark:text-white;
+  }
+}
