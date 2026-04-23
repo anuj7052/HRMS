@@ -294,8 +294,13 @@ export const RootNavigator: React.FC = () => {
       ) : (() => {
         // Job role is the source of truth if set; fall back to the stored role field
         const effectiveRole = user.jobRole ? jobRoleToSystemRole(user.jobRole) : user.role;
-        if (effectiveRole === 'hr') return <HRNavigator />;
-        if (effectiveRole === 'manager') return <ManagerNavigator />;
+        // Database roles: Admin, HR → HR navigator (full access)
+        // Database roles: Manager → Manager navigator
+        // effectiveRole from jobRoleToSystemRole: 'hr' | 'manager' | 'employee'
+        const isHR = effectiveRole === 'hr' || effectiveRole === 'HR' || effectiveRole === 'Admin';
+        const isManager = effectiveRole === 'manager' || effectiveRole === 'Manager';
+        if (isHR) return <HRNavigator />;
+        if (isManager) return <ManagerNavigator />;
         return <EmployeeNavigator />;
       })()}
     </NavigationContainer>
