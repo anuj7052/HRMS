@@ -16,8 +16,11 @@ import { errorHandler } from './middleware/errorHandler';
 
 const app = express();
 
-// Connect to MongoDB
-connectDB();
+// Trust Azure App Service / reverse proxy (fixes express-rate-limit X-Forwarded-For warning)
+app.set('trust proxy', 1);
+
+// Connect to MongoDB (non-fatal if unavailable — Prisma/PG is primary)
+connectDB().catch((err) => console.warn('[MongoDB] Connection skipped:', err.message));
 
 // Security middleware
 app.use(helmet());

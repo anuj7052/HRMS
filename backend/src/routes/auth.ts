@@ -4,8 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { User } from '../models/User';
-import { AppSettings } from '../models/AppSettings';
+import { prisma } from '../lib/prisma';
 import { sendEmail } from '../services/emailService';
 import { authenticateJWT, AuthRequest } from '../middleware/auth';
 
@@ -26,11 +25,7 @@ function generateRefreshToken(id: string): string {
 }
 
 async function getAllowedDomains(): Promise<string[]> {
-  // DB settings take precedence; fall back to env var
-  const settings = await AppSettings.findOne();
-  if (settings?.allowedEmailDomains?.length) {
-    return settings.allowedEmailDomains;
-  }
+  // Read from env var; no DB dependency
   const envDomains = process.env.ALLOWED_EMAIL_DOMAINS || '';
   return envDomains.split(',').map((d) => d.trim()).filter(Boolean);
 }
@@ -75,7 +70,7 @@ router.post(
       return;
     }
 
-    const existing = await User.findOne({ email });
+    const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       res.status(409).json({ message: 'Email already registered' });
       return;
@@ -85,14 +80,16 @@ router.post(
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
-    const user = await User.create({
-      name,
-      email,
-      passwordHash,
-      role,
-      department,
-      emailVerificationToken: verificationToken,
-      emailVerificationExpiry: verificationExpiry,
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        passwordHash,
+        role: (role as any) || 'Employee',
+        department,
+        emailVerificationToken: verificationToken,
+        emailVerificationExpiry: verificationExpiry,
+      },
     });
 
     const verifyUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
@@ -108,7 +105,7 @@ router.post(
 
     res.status(201).json({
       message: 'Registration successful. Please check your email to verify your account.',
-      userId: user._id,
+      userId: user.id,
     });
   }
 );
@@ -125,20 +122,26 @@ router.post(
     }
 
     const { token } = req.body as { token: string };
-    const user = await User.findOne({
-      emailVerificationToken: token,
-      emailVerificationExpiry: { $gt: new Date() },
-    }).select('+emailVerificationToken +emailVerificationExpiry');
+    const user = await prisma.user.findFirst({
+      where: {
+        emailVerificationToken: token,
+        emailVerificationExpiry: { gt: new Date() },
+      },
+    });
 
     if (!user) {
       res.status(400).json({ message: 'Invalid or expired verification token' });
       return;
     }
 
-    user.isEmailVerified = true;
-    user.emailVerificationToken = undefined;
-    user.emailVerificationExpiry = undefined;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        emailVerificationToken: null,
+        emailVerificationExpiry: null,
+      },
+    });
 
     res.json({ message: 'Email verified successfully. You can now log in.' });
   }
@@ -160,7 +163,7 @@ router.post(
 
     const { email, password } = req.body as { email: string; password: string };
 
-    const user = await User.findOne({ email }).select('+passwordHash +refreshToken');
+    const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       res.status(401).json({ message: 'Invalid credentials' });
       return;
@@ -171,17 +174,16 @@ router.post(
       return;
     }
 
-    const valid = await user.comparePassword(password);
+    const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       res.status(401).json({ message: 'Invalid credentials' });
       return;
     }
 
-    const accessToken = generateAccessToken(String(user._id), user.email, user.role);
-    const refreshToken = generateRefreshToken(String(user._id));
+    const accessToken = generateAccessToken(user.id, user.email, user.role);
+    const refreshToken = generateRefreshToken(user.id);
 
-    user.refreshToken = refreshToken;
-    await user.save();
+    await prisma.user.update({ where: { id: user.id }, data: { refreshToken } });
 
     res
       .cookie('refreshToken', refreshToken, {
@@ -194,7 +196,7 @@ router.post(
       .json({
         accessToken,
         user: {
-          id: user._id,
+          id: user.id,
           name: user.name,
           email: user.email,
           role: user.role,
@@ -249,26 +251,27 @@ router.post('/microsoft', async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    let user = await User.findOne({ email: lowerEmail }).select('+refreshToken');
+    let user = await prisma.user.findUnique({ where: { email: lowerEmail } });
     if (!user) {
       // Auto-provision: create a new Employee. Random password (user can reset later).
       const randomPass = crypto.randomBytes(24).toString('hex');
       const passwordHash = await bcrypt.hash(randomPass, BCRYPT_ROUNDS);
-      user = await User.create({
-        name,
-        email: lowerEmail,
-        passwordHash,
-        role: 'Employee',
-        isEmailVerified: true,
+      user = await prisma.user.create({
+        data: {
+          name,
+          email: lowerEmail,
+          passwordHash,
+          role: 'Employee',
+          isEmailVerified: true,
+        },
       });
     } else if (!user.isEmailVerified) {
-      user.isEmailVerified = true;
+      await prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } });
     }
 
-    const accessToken = generateAccessToken(String(user._id), user.email, user.role);
-    const refreshToken = generateRefreshToken(String(user._id));
-    user.refreshToken = refreshToken;
-    await user.save();
+    const accessToken = generateAccessToken(user.id, user.email, user.role);
+    const refreshToken = generateRefreshToken(user.id);
+    await prisma.user.update({ where: { id: user.id }, data: { refreshToken } });
 
     res
       .cookie('refreshToken', refreshToken, {
@@ -281,7 +284,7 @@ router.post('/microsoft', async (req: Request, res: Response): Promise<void> => 
       .json({
         accessToken,
         user: {
-          id: user._id,
+          id: user.id,
           name: user.name,
           email: user.email,
           role: user.role,
@@ -302,13 +305,13 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_REFRESH_SECRET!) as { id: string };
-    const user = await User.findById(payload.id).select('+refreshToken');
+    const user = await prisma.user.findUnique({ where: { id: payload.id } });
     if (!user || user.refreshToken !== token) {
       res.status(401).json({ message: 'Invalid refresh token' });
       return;
     }
 
-    const accessToken = generateAccessToken(String(user._id), user.email, user.role);
+    const accessToken = generateAccessToken(user.id, user.email, user.role);
     res.json({ accessToken });
   } catch {
     res.status(401).json({ message: 'Invalid or expired refresh token' });
@@ -317,10 +320,8 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
 // ─── POST /api/auth/logout ───────────────────────────────────────────────────
 router.post('/logout', authenticateJWT, async (req: AuthRequest, res: Response): Promise<void> => {
-  const user = await User.findById(req.user?.id).select('+refreshToken');
-  if (user) {
-    user.refreshToken = undefined;
-    await user.save();
+  if (req.user?.id) {
+    await prisma.user.update({ where: { id: req.user.id }, data: { refreshToken: null } }).catch(() => {});
   }
   res
     .clearCookie('refreshToken', { path: '/api/auth/refresh' })
@@ -333,7 +334,7 @@ router.post(
   [body('email').isEmail().normalizeEmail()],
   async (req: Request, res: Response): Promise<void> => {
     const { email } = req.body as { email: string };
-    const user = await User.findOne({ email });
+    const user = await prisma.user.findUnique({ where: { email } });
 
     // Always respond success to prevent user enumeration
     if (!user) {
@@ -342,9 +343,13 @@ router.post(
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    user.passwordResetToken = resetToken;
-    user.passwordResetExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1h
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetToken: resetToken,
+        passwordResetExpiry: new Date(Date.now() + 60 * 60 * 1000), // 1h
+      },
+    });
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
     try {
@@ -380,21 +385,27 @@ router.post(
     }
 
     const { token, password } = req.body as { token: string; password: string };
-    const user = await User.findOne({
-      passwordResetToken: token,
-      passwordResetExpiry: { $gt: new Date() },
-    }).select('+passwordResetToken +passwordResetExpiry');
+    const user = await prisma.user.findFirst({
+      where: {
+        passwordResetToken: token,
+        passwordResetExpiry: { gt: new Date() },
+      },
+    });
 
     if (!user) {
       res.status(400).json({ message: 'Invalid or expired reset token' });
       return;
     }
 
-    user.passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    user.passwordResetToken = undefined;
-    user.passwordResetExpiry = undefined;
-    user.refreshToken = undefined;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS),
+        passwordResetToken: null,
+        passwordResetExpiry: null,
+        refreshToken: null,
+      },
+    });
 
     res.json({ message: 'Password reset successful. Please log in.' });
   }
@@ -402,13 +413,13 @@ router.post(
 
 // ─── GET /api/auth/me ────────────────────────────────────────────────────────
 router.get('/me', authenticateJWT, async (req: AuthRequest, res: Response): Promise<void> => {
-  const user = await User.findById(req.user?.id);
+  const user = await prisma.user.findUnique({ where: { id: req.user?.id } });
   if (!user) {
     res.status(404).json({ message: 'User not found' });
     return;
   }
   res.json({
-    id: user._id,
+    id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
@@ -439,18 +450,20 @@ router.post(
       currentPassword: string;
       newPassword: string;
     };
-    const user = await User.findById(req.user?.id).select('+passwordHash');
+    const user = await prisma.user.findUnique({ where: { id: req.user?.id } });
     if (!user) {
       res.status(404).json({ message: 'User not found' });
       return;
     }
-    const valid = await user.comparePassword(currentPassword);
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!valid) {
       res.status(400).json({ message: 'Current password is incorrect' });
       return;
     }
-    user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await bcrypt.hash(newPassword, BCRYPT_ROUNDS) },
+    });
     res.json({ message: 'Password updated successfully' });
   }
 );
