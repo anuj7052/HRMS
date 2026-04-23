@@ -74,12 +74,11 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_B209DEE3D7DC46E0923DACA8D0D946CC }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_9E6B25A4EAC446018B2769E1CE36EC79 }}
 
-      - name: Disable Oryx build on Azure
+      - name: Disable Oryx build
         run: |
-          RG=$(az webapp show --name smarthrms-backend --query resourceGroup -o tsv)
           az webapp config appsettings set \
             --name smarthrms-backend \
-            --resource-group $RG \
+            --resource-group smarthrms-rg \
             --settings WEBSITE_SKIP_ORYX_BUILD=true SCM_DO_BUILD_DURING_DEPLOYMENT=false
 
       - name: Deploy to Azure Web App
