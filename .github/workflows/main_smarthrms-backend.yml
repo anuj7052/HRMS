@@ -50,15 +50,8 @@ jobs:
           cp -r backend/dist /tmp/deploy/
           cp backend/package.json /tmp/deploy/
           cp -r backend/prisma /tmp/deploy/
-          # Create node_modules.tar.gz the way Oryx expects (contents extracted to /node_modules)
           tar -czf /tmp/deploy/node_modules.tar.gz -C backend/node_modules .
-          # Create oryx-manifest.toml so Oryx uses our tar.gz
-          cat > /tmp/deploy/oryx-manifest.toml << 'MANIFEST'
-NodePackageManagerBuildType = "npm"
-packageDir = ""
-sourceBuildType = "nodejs"
-compressedNodeModulesFile = "node_modules.tar.gz"
-MANIFEST
+          printf 'NodePackageManagerBuildType = "npm"\npackageDir = ""\nsourceBuildType = "nodejs"\ncompressedNodeModulesFile = "node_modules.tar.gz"\n' > /tmp/deploy/oryx-manifest.toml
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
