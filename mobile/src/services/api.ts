@@ -194,3 +194,21 @@ export async function getLeaves(status?: string) {
 export async function applyLeave(body: { leaveTypeId: string; fromDate: string; toDate: string; reason: string }) {
   return api.post('/leaves', body);
 }
+
+// ── WFH helpers ──────────────────────────────────────────────────────────────
+export interface WFHRequestAPI {
+  id: string;
+  date: string;      // ISO string
+  mode: string;
+  reason: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+}
+
+export async function getMyWFHRequests(status?: string): Promise<WFHRequestAPI[]> {
+  const qs = status ? `?status=${status}` : '';
+  return api.get<WFHRequestAPI[]>(`/attendance/wfh-requests${qs}`);
+}
+
+export async function submitWFHRequest(body: { date: string; mode: string; reason: string }) {
+  return api.post('/attendance/wfh-request', body);
+}

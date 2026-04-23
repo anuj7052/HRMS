@@ -5,6 +5,7 @@ import { Badge, Card, Row } from '@/components/UI';
 import { palette, statusColor, useTheme } from '@/theme';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { checkIn, checkOut } from '@/store/dataSlice';
+import { getTodayStatus, punchIn, punchOut, getMyWFHRequests } from '@/services/api';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -241,10 +242,16 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
   const attendance = useAppSelector((s) => s.data.attendance);
   const notifications = useAppSelector((s) => s.data.notifications);
   const balances = useAppSelector((s) => s.data.leaveBalances);
-  const wfhRequests = useAppSelector((s) => s.data.wfhRequests);
   const appCheckInEnabled = useAppSelector((s) => s.data.appCheckInEnabled);
 
   const [checkInLoading, setCheckInLoading] = useState(false);
+  // PostgreSQL-backed today status
+  const [dbPunchedIn, setDbPunchedIn] = useState(false);
+  const [dbPunchedOut, setDbPunchedOut] = useState(false);
+  const [dbCheckInTime, setDbCheckInTime] = useState<string | undefined>();
+  const [dbCheckOutTime, setDbCheckOutTime] = useState<string | undefined>();
+  // WFH approved for today (from backend)
+  const [todayWFHApproved, setTodayWFHApproved] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
   const todayRec = attendance.find((a) => a.userId === user.id && a.date === today);
@@ -256,19 +263,41 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
   const leavesRemaining = balances.reduce((s, b) => s + b.available, 0);
   const recent = attendance.filter((a) => a.userId === user.id).slice(0, 4);
 
+  // ── Load today's punch status + WFH approval from backend ───────────────
+  useEffect(() => {
+    // Load today's punch status from PostgreSQL
+    getTodayStatus().then((data) => {
+      setDbPunchedIn(data.isPunchedIn);
+      setDbPunchedOut(data.isPunchedOut);
+      if (data.log?.punchIn) {
+        const t = new Date(data.log.punchIn);
+        setDbCheckInTime(`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`);
+      }
+      if (data.log?.punchOut) {
+        const t = new Date(data.log.punchOut);
+        setDbCheckOutTime(`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`);
+      }
+    }).catch(() => { /* offline — use Redux state */ });
+
+    // Load approved WFH requests to check if today is WFH
+    getMyWFHRequests('Approved').then((requests) => {
+      const todayApproved = requests.some((r) => r.date.startsWith(today));
+      setTodayWFHApproved(todayApproved);
+    }).catch(() => { /* offline */ });
+  }, [today]);
+
   // ── Work Mode Engine ────────────────────────────────────────────────────
   // WFO  → always use ESSL biometric device (app check-in never shown)
   // WFH  → show if HR has globally enabled app check-in
-  // Hybrid → show only if appCheckInEnabled AND today has an approved WFH
+  // Hybrid/WFO → show if today has an approved WFH request from backend
   const canCheckInViaApp = useMemo(() => {
     if (!appCheckInEnabled) return false;
+    // Backend WFH approval for today → always allow app check-in
+    if (todayWFHApproved) return true;
     if (user.workMode === 'WFO') return false;
     if (user.workMode === 'WFH') return true;
-    // Hybrid: requires an approved WFH request that covers today
-    return wfhRequests.some(
-      (w) => w.userId === user.id && w.status === 'Approved' && w.dates.includes(today)
-    );
-  }, [appCheckInEnabled, user.workMode, user.id, wfhRequests, today]);
+    return false;
+  }, [appCheckInEnabled, user.workMode, todayWFHApproved]);
 
   // Reason text shown when check-in is blocked
   const checkInBlockedReason = useMemo(() => {
@@ -276,8 +305,7 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
       return { title: 'Office attendance via biometric only', sub: 'Please use your ESSL device to mark attendance.' };
     if (!appCheckInEnabled)
       return { title: 'App check-in is currently disabled', sub: 'Please use your biometric device to mark attendance.' };
-    // Hybrid without today's WFH approval
-    return { title: 'No approved WFH for today', sub: 'Apply for WFH or use your ESSL biometric device.' };
+    return { title: 'No approved WFH for today', sub: 'Apply for WFH — once approved, check-in buttons will appear here.' };
   }, [user.workMode, appCheckInEnabled]);
 
   const hour = new Date().getHours();
@@ -290,17 +318,52 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
     setCheckInLoading(true);
     try {
       const loc = await mockFetchLocation();
-      dispatch(checkIn({ userId: user.id, time: nowHHMM(), source: 'App', location: loc }));
-    } catch {
-      Alert.alert('Error', 'Could not capture GPS. Please try again.');
+      // Save to PostgreSQL via backend
+      const result = await punchIn({ attendanceMode: todayWFHApproved ? 'WFH' : 'Office', lat: loc.lat, lng: loc.lng });
+      const time = nowHHMM();
+      setDbPunchedIn(true);
+      setDbCheckInTime(time);
+      dispatch(checkIn({ userId: user.id, time, source: 'App', location: loc }));
+      Alert.alert('Checked In ✓', result.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Check-in failed';
+      if (msg.includes('Already punched in')) {
+        // Already recorded — refresh state
+        const status = await getTodayStatus().catch(() => null);
+        if (status?.log?.punchIn) {
+          const t2 = new Date(status.log.punchIn);
+          const time = `${String(t2.getHours()).padStart(2,'0')}:${String(t2.getMinutes()).padStart(2,'0')}`;
+          setDbPunchedIn(true); setDbCheckInTime(time);
+        }
+      } else {
+        Alert.alert('Check-In Failed', msg);
+      }
     } finally {
       setCheckInLoading(false);
     }
   };
 
-  const handleCheckOut = () => {
-    dispatch(checkOut({ userId: user.id, time: nowHHMM() }));
+  const handleCheckOut = async () => {
+    try {
+      const loc = await mockFetchLocation().catch(() => null);
+      // Save to PostgreSQL via backend
+      const result = await punchOut({ lat: loc?.lat, lng: loc?.lng });
+      const time = nowHHMM();
+      setDbPunchedOut(true);
+      setDbCheckOutTime(time);
+      dispatch(checkOut({ userId: user.id, time }));
+      Alert.alert('Checked Out ✓', result.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Check-out failed';
+      Alert.alert('Check-Out Failed', msg);
+    }
   };
+
+  // Use DB state if available, fall back to Redux
+  const effectivePunchedIn = dbPunchedIn || !!todayRec?.checkIn;
+  const effectivePunchedOut = dbPunchedOut || !!todayRec?.checkOut;
+  const effectiveCheckInTime = dbCheckInTime || todayRec?.checkIn;
+  const effectiveCheckOutTime = dbCheckOutTime || todayRec?.checkOut;
 
   return (
     <ScrollView
@@ -342,13 +405,13 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
           </View>
         </Row>
 
-        {/* Check-in / Check-out widget — gated by HR toggle + work-mode engine */}
+        {/* Check-in / Check-out widget — gated by HR toggle + WFH approval */}
         {canCheckInViaApp ? (
           <CheckWidget
-            checkedIn={!!todayRec?.checkIn}
-            checkedOut={!!todayRec?.checkOut}
-            checkInTime={todayRec?.checkIn}
-            checkOutTime={todayRec?.checkOut}
+            checkedIn={effectivePunchedIn}
+            checkedOut={effectivePunchedOut}
+            checkInTime={effectiveCheckInTime}
+            checkOutTime={effectiveCheckOutTime}
             onCheckIn={handleCheckIn}
             onCheckOut={handleCheckOut}
             loading={checkInLoading}

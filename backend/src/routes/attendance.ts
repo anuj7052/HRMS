@@ -785,4 +785,10 @@ router.get('/live-feed', requireRole(['Admin', 'HR']), async (_req: AuthRequest,
   res.json({ feed, date: today.toISOString().split('T')[0], total: feed.length });
 });
 
+// ─── DELETE /api/attendance/* — BLOCKED ─────────────────────────────────────
+// Attendance data is permanent: records can only be updated/corrected, never deleted.
+router.delete('*', (_req, res: Response): void => {
+  res.status(405).json({ message: 'Attendance records cannot be deleted. Use regularize to correct data.' });
+});
+
 export default router;

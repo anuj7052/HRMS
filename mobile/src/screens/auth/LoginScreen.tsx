@@ -112,11 +112,19 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
 
         {/* Logo */}
         <View style={{ alignItems: 'center', marginBottom: 36 }}>
-          <View style={{ width: 76, height: 76, borderRadius: 22, backgroundColor: palette.primary, alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="briefcase" size={38} color="#fff" />
+          <View style={{
+            width: 80, height: 80, borderRadius: 24, backgroundColor: palette.primary,
+            alignItems: 'center', justifyContent: 'center',
+            shadowColor: palette.primary, shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
+          }}>
+            {/* F letter mark for Foetron */}
+            <Text style={{ fontSize: 38, fontWeight: '900', color: '#fff', letterSpacing: -1 }}>F</Text>
           </View>
-          <Text style={{ fontSize: 26, fontWeight: '800', color: t.colors.text, marginTop: 14 }}>SmartHRMS</Text>
-          <Text style={{ color: t.colors.textMuted, marginTop: 4 }}>Workforce on your fingertips</Text>
+          <Text style={{ fontSize: 26, fontWeight: '900', color: t.colors.text, marginTop: 14, letterSpacing: 0.5 }}>
+            Foetron HRMS
+          </Text>
+          <Text style={{ color: t.colors.textMuted, marginTop: 4, fontSize: 13 }}>Workforce on your fingertips</Text>
         </View>
 
         {/* Credentials */}
