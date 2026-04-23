@@ -32,7 +32,7 @@ interface EsslState {
 const initialState: EsslState = {
   config: {
     mode: 'session',
-    proxyUrl: 'http://localhost:4000',
+    proxyUrl: process.env.EXPO_PUBLIC_ESSL_PROXY_URL || 'http://localhost:4000',
     serverUrl: 'http://98.70.41.54:85',
     userName: '',
     password: '',

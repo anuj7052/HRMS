@@ -1,5 +1,7 @@
 import { Router, Response } from 'express';
 import { query, body, validationResult } from 'express-validator';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { authenticateJWT, requireRole, AuthRequest } from '../middleware/auth';
 import { Device } from '../models/Device';
 import { fetchFromIClockServerDirect, decryptFromStorage } from '../services/etlService';
@@ -610,5 +612,177 @@ router.put(
     res.json({ message: `WFH request ${status}`, request: updated });
   }
 );
+
+// ─── POST /api/attendance/push-punches ──────────────────────────────────────
+// Mobile → push raw eSSL punches → save to PostgreSQL AttendanceLog
+// Called by the mobile app every 5s (live) and once for historical import (Jan 1 → today)
+router.post(
+  '/push-punches',
+  requireRole(['Admin', 'HR']),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const { punches } = req.body as {
+      punches: Array<{ empCode: string; timestamp: string; direction: 'in' | 'out' }>;
+    };
+
+    if (!Array.isArray(punches) || punches.length === 0) {
+      res.status(400).json({ message: 'punches array is required and must not be empty' });
+      return;
+    }
+
+    // ── Group punches by employee+date ──────────────────────────────────────
+    const grouped = new Map<string, { empCode: string; dateStr: string; entries: Array<{ ts: Date; dir: 'in' | 'out' }> }>();
+    for (const p of punches) {
+      const ts = new Date(p.timestamp.replace(' ', 'T'));
+      if (isNaN(ts.getTime())) continue;
+      const dateStr = ts.toISOString().split('T')[0]; // YYYY-MM-DD (UTC)
+      const key = `${p.empCode}__${dateStr}`;
+      if (!grouped.has(key)) grouped.set(key, { empCode: p.empCode, dateStr, entries: [] });
+      grouped.get(key)!.entries.push({ ts, dir: p.direction });
+    }
+
+    // ── Shared shift settings ───────────────────────────────────────────────
+    const settings = await prisma.appSettings.findFirst();
+    const globalShiftStart = settings?.shiftStart || '09:00';
+    const globalLateMin = settings?.lateThresholdMinutes ?? 15;
+    const globalHalfDayHrs = settings?.halfDayThresholdHours ?? 4;
+
+    let saved = 0;
+    let skipped = 0;
+
+    for (const [, group] of grouped) {
+      // ── Find or create employee ─────────────────────────────────────────
+      let employee = await prisma.employee.findFirst({
+        where: { OR: [{ employeeId: group.empCode }, { devicePin: group.empCode }] },
+        select: { id: true, shiftId: true },
+      });
+
+      if (!employee) {
+        try {
+          const email = `device.pin.${group.empCode}@device.local`;
+          let user = await prisma.user.findUnique({ where: { email } });
+          if (!user) {
+            const tempPw = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
+            user = await prisma.user.create({
+              data: {
+                name: `Employee ${group.empCode}`,
+                email,
+                passwordHash: tempPw,
+                role: 'Employee',
+                isEmailVerified: false,
+              },
+            });
+          }
+          const existing = await prisma.employee.findUnique({ where: { userId: user.id } });
+          employee = existing ?? await prisma.employee.create({
+            data: {
+              userId: user.id,
+              employeeId: group.empCode,
+              department: 'To Be Updated',
+              designation: 'To Be Updated',
+              joinDate: new Date(),
+              isActive: true,
+            },
+          });
+        } catch {
+          skipped++;
+          continue;
+        }
+      }
+
+      // ── Compute punchIn / punchOut / workHours / status ─────────────────
+      const sorted = group.entries.sort((a, b) => a.ts.getTime() - b.ts.getTime());
+      const punchIn = sorted[0].ts;
+      const punchOut = sorted.length > 1 ? sorted[sorted.length - 1].ts : null;
+      const workHours = punchOut ? (punchOut.getTime() - punchIn.getTime()) / (1000 * 60 * 60) : 0;
+
+      let shiftStart = globalShiftStart;
+      let lateMin = globalLateMin;
+      let halfDayHrs = globalHalfDayHrs;
+      if (employee.shiftId) {
+        const shift = await prisma.shift.findUnique({ where: { id: employee.shiftId } });
+        if (shift) {
+          shiftStart = shift.startTime;
+          lateMin = shift.gracePeriodMinutes;
+          halfDayHrs = shift.halfDayThresholdHours;
+        }
+      }
+
+      const [sh, sm] = shiftStart.split(':').map(Number);
+      const shiftTime = new Date(punchIn);
+      shiftTime.setHours(sh, sm, 0, 0);
+      const lateBy = (punchIn.getTime() - shiftTime.getTime()) / (1000 * 60);
+
+      let status: 'Present' | 'Late' | 'HalfDay' = 'Present';
+      if (workHours > 0 && workHours < halfDayHrs) {
+        status = 'HalfDay';
+      } else if (lateBy > lateMin) {
+        status = 'Late';
+      }
+
+      // ── Upsert AttendanceLog ────────────────────────────────────────────
+      // date must be midnight UTC for @db.Date
+      const date = new Date(`${group.dateStr}T00:00:00.000Z`);
+      try {
+        await prisma.attendanceLog.upsert({
+          where: { employeeId_date: { employeeId: employee.id, date } },
+          update: {
+            punchIn,
+            ...(punchOut ? { punchOut } : {}),
+            workHours: parseFloat(workHours.toFixed(2)),
+            status,
+            source: 'essl',
+          },
+          create: {
+            employeeId: employee.id,
+            date,
+            punchIn,
+            punchOut: punchOut ?? undefined,
+            workHours: parseFloat(workHours.toFixed(2)),
+            status,
+            source: 'essl',
+          },
+        });
+        saved++;
+      } catch {
+        skipped++;
+      }
+    }
+
+    res.json({ success: true, saved, skipped, total: punches.length });
+  }
+);
+
+// ─── GET /api/attendance/live-feed ───────────────────────────────────────────
+// Returns today's attendance with employee names for the live attendance board
+router.get('/live-feed', requireRole(['Admin', 'HR']), async (_req: AuthRequest, res: Response): Promise<void> => {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
+  const logs = await prisma.attendanceLog.findMany({
+    where: { date: { gte: today, lt: tomorrow } },
+    include: {
+      employee: {
+        include: { user: { select: { name: true } } },
+      },
+    },
+    orderBy: { punchIn: 'desc' },
+  });
+
+  const feed = logs.map((l) => ({
+    id: l.id,
+    empCode: l.employee.employeeId,
+    name: l.employee.user?.name || `Employee ${l.employee.employeeId}`,
+    department: l.employee.department,
+    punchIn: l.punchIn?.toISOString() ?? null,
+    punchOut: l.punchOut?.toISOString() ?? null,
+    workHours: l.workHours,
+    status: l.status,
+    source: l.source,
+  }));
+
+  res.json({ feed, date: today.toISOString().split('T')[0], total: feed.length });
+});
 
 export default router;

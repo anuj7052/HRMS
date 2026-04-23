@@ -13,6 +13,7 @@ import {
 } from '@/store/esslSlice';
 import { bulkIngestPunches } from '@/store/dataSlice';
 import { testConnection, fetchPunches } from '@/services/essl';
+import { pushEsslPunches } from '@/services/api';
 
 /** On Android emulator, 10.0.2.2 maps to the host machine's localhost. */
 const LOCALHOST_HINT = Platform.select({
@@ -30,7 +31,7 @@ const EsslConnectionScreen: React.FC = () => {
 
   const [form, setForm] = useState(config);
   const todayStr = new Date().toISOString().slice(0, 10);
-  const [fromDate, setFromDate] = useState('2026-03-01');
+  const [fromDate, setFromDate] = useState('2026-01-01');
   const [toDate, setToDate] = useState(todayStr);
   const [fetching, setFetching] = useState(false);
   const [lastFetch, setLastFetch] = useState<string | null>(null);
@@ -93,9 +94,23 @@ const EsslConnectionScreen: React.FC = () => {
     setLastFetch(new Date().toLocaleTimeString());
     // Count unique employee-days processed
     const days = new Set(r.punches.map((p) => p.empCode + '|' + p.timestamp.slice(0, 10))).size;
+
+    // ── Also save to PostgreSQL via backend ──────────────────────────────
+    let savedCount = 0;
+    if (r.punches.length > 0) {
+      try {
+        const saveResult = await pushEsslPunches(
+          r.punches.map((p) => ({ empCode: p.empCode, timestamp: p.timestamp, direction: p.direction }))
+        );
+        savedCount = saveResult.saved;
+      } catch {
+        // backend unreachable — data is still in Redux
+      }
+    }
+
     Alert.alert(
       'Attendance Updated ✓',
-      `${r.punches.length} biometric punches merged.\n${days} employee-days updated.\n\nEach day: first punch → Check-In, last punch → Check-Out.\n\nRange: ${effectiveFrom} → ${effectiveTo}`
+      `${r.punches.length} biometric punches merged.\n${days} employee-days updated.\n${savedCount > 0 ? `${savedCount} records saved to database.` : 'Could not save to database — check login.'}\n\nRange: ${effectiveFrom} → ${effectiveTo}`
     );
   };
 

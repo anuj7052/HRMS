@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { fetchPunches } from '@/services/essl';
+import { pushEsslPunches } from '@/services/api';
 import { ingestPunches, setConnected, setError, EsslPunch } from '@/store/esslSlice';
 import { checkIn, checkOut } from '@/store/dataSlice';
 
@@ -8,11 +9,11 @@ const MAX_BACKOFF_MS = 60_000;   // cap at 1 minute between retries when errors 
 const BACKOFF_MULTIPLIER = 2;    // double the interval on each consecutive error
 
 /**
- * Polls the proxy every `config.pollMs` (default 5s) when `enabled === true`.
- * Uses exponential backoff when errors occur to avoid hammering a unreachable server.
- * Punches received are:
- *   1. stored in `essl.recent`
- *   2. mirrored into `data.attendance` via checkIn / checkOut so the UI updates everywhere.
+ * Polls the eSSL proxy every `config.pollMs` (default 5s) when `enabled === true`.
+ * After each successful fetch:
+ *   1. Punches are stored in Redux (`essl.recent`) for live UI
+ *   2. Punches are pushed to the backend → saved to PostgreSQL
+ *   3. Attendance checkIn/checkOut events are mirrored into `data.attendance`
  */
 export function useEsslPolling() {
   const dispatch = useAppDispatch();
@@ -33,9 +34,7 @@ export function useEsslPolling() {
 
       if (!result.ok) {
         consecutiveErrors.current += 1;
-        // Only surface the error on the first failure; subsequent ones are silently retried
         dispatch(setError(result.error || 'Poll failed'));
-        // Exponential backoff: 5s → 10s → 20s → 40s → 60s (cap)
         const backoff = Math.min(
           config.pollMs * Math.pow(BACKOFF_MULTIPLIER, consecutiveErrors.current - 1),
           MAX_BACKOFF_MS
@@ -46,6 +45,21 @@ export function useEsslPolling() {
         dispatch(setConnected(true));
         dispatch(ingestPunches(result.punches));
         applyToAttendance(result.punches);
+
+        // ── Save to PostgreSQL via backend ──────────────────────────────
+        if (result.punches.length > 0) {
+          const newPunches = result.punches.filter((p) => !seenIds.current.has(p.id));
+          if (newPunches.length > 0) {
+            pushEsslPunches(
+              newPunches.map((p) => ({
+                empCode: p.empCode,
+                timestamp: p.timestamp,
+                direction: p.direction,
+              }))
+            ).catch(() => { /* silent — offline/no token is fine */ });
+          }
+        }
+
         if (!cancelled) timer = setTimeout(tick, Math.max(1000, config.pollMs));
       }
     };
@@ -66,7 +80,6 @@ export function useEsslPolling() {
       }
     };
 
-    // Reset backoff counter when polling starts fresh
     consecutiveErrors.current = 0;
     tick();
     return () => {
@@ -75,3 +88,4 @@ export function useEsslPolling() {
     };
   }, [enabled, config.proxyUrl, config.serverUrl, config.userName, config.password, config.pollMs, dispatch, employees]);
 }
+

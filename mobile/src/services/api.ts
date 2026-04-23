@@ -155,6 +155,29 @@ export async function getAttendanceLogs(employeeId: string, month: number, year:
   }>(`/attendance/employee/${employeeId}?month=${month}&year=${year}`);
 }
 
+// Push raw eSSL punches to backend → saved to PostgreSQL
+export async function pushEsslPunches(
+  punches: Array<{ empCode: string; timestamp: string; direction: 'in' | 'out' }>
+): Promise<{ saved: number; skipped: number; total: number }> {
+  return api.post<{ success: boolean; saved: number; skipped: number; total: number }>(
+    '/attendance/push-punches',
+    { punches }
+  );
+}
+
+// Get live attendance feed from PostgreSQL (today's logs)
+export async function getLiveFeed(): Promise<{
+  feed: Array<{
+    id: string; empCode: string; name: string; department: string;
+    punchIn: string | null; punchOut: string | null;
+    workHours: number | null; status: string; source: string;
+  }>;
+  date: string;
+  total: number;
+}> {
+  return api.get('/attendance/live-feed');
+}
+
 // ── Employee helpers ──────────────────────────────────────────────────────────
 export async function getMyEmployee() {
   return api.get<{ data: Array<{ id: string; employeeId: string; department: string; designation: string }> }>(
