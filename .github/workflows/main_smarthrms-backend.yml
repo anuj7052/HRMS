@@ -40,6 +40,10 @@ jobs:
         working-directory: backend
         run: npm ci --omit=dev
 
+      - name: Generate Prisma client for production (Linux)
+        working-directory: backend
+        run: npx prisma generate
+
       - name: Prepare deploy package
         run: |
           mkdir -p /tmp/deploy
@@ -88,3 +92,18 @@ jobs:
           app-name: 'smarthrms-backend'
           slot-name: 'Production'
           package: ./deploy
+
+      - name: Remove Oryx manifest (prevent stale cache issues)
+        run: |
+          CREDS=$(az webapp deployment list-publishing-credentials \
+            --name smarthrms-backend \
+            --resource-group smarthrms-rg \
+            --query "{user:publishingUserName,pwd:publishingPassword}" \
+            --output json)
+          KUDU_USER=$(echo $CREDS | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['user'])")
+          KUDU_PWD=$(echo $CREDS | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['pwd'])")
+          curl -s -X POST \
+            "https://smarthrms-backend-fggdhde8dvfheygd.scm.centralindia-01.azurewebsites.net/api/command" \
+            -u "${KUDU_USER}:${KUDU_PWD}" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"/bin/sh -c \"rm -f /home/site/wwwroot/oryx-manifest.toml /home/site/wwwroot/node_modules.tar.gz\"","dir":"/"}' || true
