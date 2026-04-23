@@ -24,7 +24,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
-      - name: Install all dependencies (including devDeps for build)
+      - name: Install all dependencies
         working-directory: backend
         run: npm ci
 
@@ -36,16 +36,9 @@ jobs:
         working-directory: backend
         run: npm run build
 
-      - name: Install production dependencies only (for deploy)
+      - name: Install production dependencies only
         working-directory: backend
         run: npm ci --omit=dev
-
-      - name: Copy Prisma files to dist
-        working-directory: backend
-        run: |
-          mkdir -p dist/prisma
-          cp -r prisma/schema.prisma dist/prisma/ 2>/dev/null || true
-          cp -r prisma/migrations dist/prisma/ 2>/dev/null || true
 
       - name: Prepare deploy package
         run: |
@@ -81,7 +74,15 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_B209DEE3D7DC46E0923DACA8D0D946CC }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_9E6B25A4EAC446018B2769E1CE36EC79 }}
 
-      - name: 'Deploy to Azure Web App'
+      - name: Disable Oryx build on Azure
+        run: |
+          RG=$(az webapp show --name smarthrms-backend --query resourceGroup -o tsv)
+          az webapp config appsettings set \
+            --name smarthrms-backend \
+            --resource-group $RG \
+            --settings WEBSITE_SKIP_ORYX_BUILD=true SCM_DO_BUILD_DURING_DEPLOYMENT=false
+
+      - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
