@@ -19,7 +19,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "http://192.168.2.177:5000/api"
+        "EXPO_PUBLIC_API_BASE_URL": "https://smarthrms-backend-fggdhde8dvfheygd.centralindia-01.azurewebsites.net/api"
       }
     },
     "production": {

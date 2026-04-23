@@ -25,14 +25,15 @@ const platformFallbacks = Platform.select({
   default: [],
 }) as string[];
 
+const PRODUCTION_URL = 'https://smarthrms-backend-fggdhde8dvfheygd.centralindia-01.azurewebsites.net/api';
+
 const API_BASE_CANDIDATES = Array.from(
   new Set(
     [
       process.env.EXPO_PUBLIC_API_BASE_URL?.trim(),
       getMetroBaseUrl(),
       ...platformFallbacks,
-      'http://192.168.2.177:5000/api',
-      'https://smarthrms-backend.azurewebsites.net/api',
+      PRODUCTION_URL,
     ].filter(Boolean)
   )
 ) as string[];
