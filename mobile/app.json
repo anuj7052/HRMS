@@ -10,14 +10,17 @@
       "resizeMode": "contain",
       "backgroundColor": "#1A3C6E"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.smarthrms.app",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        }
+        },
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -27,7 +30,24 @@
       "package": "com.smarthrms.app",
       "versionCode": 1,
       "usesCleartextTraffic": true,
-      "permissions": ["INTERNET", "ACCESS_NETWORK_STATE"]
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "ea9dbf9c-eef8-4b3d-9205-269da39ba5ad"
+      }
+    },
+    "owner": "anujsingh45",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ea9dbf9c-eef8-4b3d-9205-269da39ba5ad"
     }
   }
 }
