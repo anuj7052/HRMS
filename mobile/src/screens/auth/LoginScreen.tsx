@@ -30,12 +30,17 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
     setLoading(true);
     try {
       const data = await loginWithCredentials(identifier.trim().toLowerCase(), password);
+      // Map backend roles (Admin, HR, Manager, Employee) to navigator roles
+      const rawRole = data.user.role || 'Employee';
+      const mappedRole = ['Admin', 'HR'].includes(rawRole) ? 'hr'
+        : rawRole === 'Manager' ? 'manager'
+        : 'employee';
       dispatch(loginSuccess({
         user: {
           id: data.user.id,
           name: data.user.name,
           email: data.user.email,
-          role: (data.user.role?.toLowerCase() as any) || 'employee',
+          role: mappedRole as any,
           empCode: data.user.id,
           phone: '',
           department: '',
@@ -69,12 +74,16 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
     setErrors({});
     try {
       const data = await signInWithMicrosoft();
+      const rawRoleMs = data.user.role || 'Employee';
+      const mappedRoleMs = ['Admin', 'HR'].includes(rawRoleMs) ? 'hr'
+        : rawRoleMs === 'Manager' ? 'manager'
+        : 'employee';
       dispatch(loginSuccess({
         user: {
           id: data.user.id,
           name: data.user.name,
           email: data.user.email,
-          role: (data.user.role?.toLowerCase() as any) || 'employee',
+          role: mappedRoleMs as any,
           empCode: data.user.id,
           phone: '',
           department: data.user.department || '',
