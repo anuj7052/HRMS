@@ -11,9 +11,8 @@ function getMetroBaseUrl(): string | undefined {
   const scriptURL = NativeModules.SourceCode?.scriptURL as string | undefined;
   if (!scriptURL) return undefined;
 
-  // Regex-parse to avoid relying on URL polyfill quirks in React Native.
-  // scriptURL looks like: "http://192.168.2.177:8081/index.bundle?platform=ios&dev=true..."
-  const match = scriptURL.match(/^https?:\/\/([^/:]+)(?::\d+)?/);
+  // Handle both http:// and exp:// schemes (Expo Go uses exp://192.x.x.x:8081)
+  const match = scriptURL.match(/^(?:https?|exp):\/\/([^/:]+)(?::\d+)?/);
   const host = match?.[1];
   if (!host || host === 'localhost') return undefined;
   return `http://${host}:5000/api`;
@@ -30,10 +29,9 @@ const PRODUCTION_URL = 'https://smarthrms-backend-fggdhde8dvfheygd.centralindia-
 const API_BASE_CANDIDATES = Array.from(
   new Set(
     [
-      process.env.EXPO_PUBLIC_API_BASE_URL?.trim(),
+      process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || PRODUCTION_URL,
       getMetroBaseUrl(),
       ...platformFallbacks,
-      PRODUCTION_URL,
     ].filter(Boolean)
   )
 ) as string[];
