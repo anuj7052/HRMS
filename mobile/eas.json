@@ -28,7 +28,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://smarthrms-backend.azurewebsites.net/api"
+        "EXPO_PUBLIC_API_BASE_URL": "https://smarthrms-backend-fggdhde8dvfheygd.centralindia-01.azurewebsites.net/api"
       }
     }
   },
