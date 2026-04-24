@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'rea
 import { Badge, Button, Card, EmptyState, Input, Row } from '@/components/UI';
 import { statusColor, useTheme } from '@/theme';
 import { useAppSelector } from '@/store';
-import { getLeaveRequests, reviewLeave, type LeaveRequestAPI } from '@/services/api';
+import { getLeaveRequests, reviewLeave, getMyWFHRequests, type LeaveRequestAPI } from '@/services/api';
 
 const PendingApprovalsScreen: React.FC = () => {
   const t = useTheme();
@@ -91,27 +91,28 @@ const PendingApprovalsScreen: React.FC = () => {
                   <Badge label={l.status} color={statusColor(l.status as any, t)} />
                 </Row>
 
-                <View style={{ marginBottom: 10 }}>
-                  <Input
-                    value={comments[l.id] ?? ''}
-                    onChangeText={(v) => setComments((prev) => ({ ...prev, [l.id]: v }))}
-                    placeholder="Comment (optional)"
-                  />
-                </View>
+                <Input
+                  value={comments[l.id] ?? ''}
+                  onChangeText={(v) => setComments((prev) => ({ ...prev, [l.id]: v }))}
+                  placeholder="Comment (optional)"
+                  style={{ marginBottom: 10 }}
+                />
 
                 <Row style={{ gap: 8 }}>
                   <Button
-                    title={processing[l.id] ? '…' : 'Approve'}
+                    label={processing[l.id] ? '…' : 'Approve'}
                     onPress={() => handleReview(l.id, 'Approved')}
                     disabled={!!processing[l.id]}
-                    style={{ flex: 1 }}
+                    style={{ flex: 1, backgroundColor: '#16A34A' }}
+                    textStyle={{ color: '#fff' }}
                   />
                   <Button
-                    title={processing[l.id] ? '…' : 'Reject'}
+                    label={processing[l.id] ? '…' : 'Reject'}
                     onPress={() => handleReview(l.id, 'Rejected')}
                     disabled={!!processing[l.id]}
-                    variant="danger"
-                    style={{ flex: 1 }}
+                    variant="outline"
+                    style={{ flex: 1, borderColor: t.colors.danger }}
+                    textStyle={{ color: t.colors.danger }}
                   />
                 </Row>
               </Card>

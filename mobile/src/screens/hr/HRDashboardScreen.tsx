@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Row } from '@/components/UI';
 import { palette, useTheme } from '@/theme';
 import { useAppSelector } from '@/store';
-import { getLiveFeed, getLeaveRequests } from '@/services/api';
 
 // ─── Tile component ───────────────────────────────────────────────────────────
 interface TileProps {
@@ -88,27 +87,28 @@ const SectionLabel: React.FC<{ title: string }> = ({ title }) => {
 const HRDashboardScreen: React.FC<any> = ({ navigation }) => {
   const t = useTheme();
   const user = useAppSelector((s) => s.auth.user)!;
+  const employees = useAppSelector((s) => s.data.employees);
+  const attendance = useAppSelector((s) => s.data.attendance);
+  const leaves = useAppSelector((s) => s.data.leaves);
+  const wfhRequests = useAppSelector((s) => s.data.wfhRequests);
+  const corrections = useAppSelector((s) => s.data.corrections);
   const notifications = useAppSelector((s) => s.data.notifications);
 
-  const [stats, setStats] = useState({ active: 0, present: 0, absent: 0, late: 0 });
-  const [pendingLeaves, setPendingLeaves] = useState(0);
+  const today = new Date().toISOString().split('T')[0];
   const unread = notifications.filter((n) => !n.read).length;
-  const totalPending = pendingLeaves;
+  const pendingLeaves = leaves.filter((l) => l.status === 'Pending').length;
+  const pendingWFH = wfhRequests.filter((w) => w.status === 'Pending').length;
+  const pendingCorrections = corrections.filter((c) => c.status === 'Pending').length;
+  const totalPending = pendingLeaves + pendingWFH + pendingCorrections;
 
-  useEffect(() => {
-    // Load live attendance stats
-    getLiveFeed().then((res) => {
-      const present = res.feed.filter((f) => f.status === 'Present' || f.status === 'WFH').length;
-      const absent = res.feed.filter((f) => f.status === 'Absent').length;
-      const total = res.total;
-      setStats({ active: total, present, absent, late: 0 });
-    }).catch(() => {});
-
-    // Load pending leaves count
-    getLeaveRequests('Pending').then((leaves) => {
-      setPendingLeaves(Array.isArray(leaves) ? leaves.length : 0);
-    }).catch(() => {});
-  }, []);
+  const stats = useMemo(() => {
+    const active = employees.filter((e) => e.active).length;
+    const todayRecs = attendance.filter((a) => a.date === today);
+    const present = todayRecs.filter((a) => a.status === 'Present' || a.status === 'WFH').length;
+    const late = todayRecs.filter((a) => a.late).length;
+    const absent = Math.max(0, active - present);
+    return { active, present, absent, late };
+  }, [employees, attendance, today]);
 
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
