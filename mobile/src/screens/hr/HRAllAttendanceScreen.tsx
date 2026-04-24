@@ -130,12 +130,28 @@ const HRAllAttendanceScreen: React.FC = () => {
     return { list: Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name)), weekDates };
   }, [mode, filteredFeed, range.from]);
 
+  // ── Day: group by employee → first check-in, last check-out ────────────────
+  const dayGrouped = useMemo(() => {
+    if (mode !== 'Day') return [];
+    const map = new Map<string, AttendanceByDateEntry & { firstIn: string | null; lastOut: string | null }>();
+    filteredFeed.forEach((r) => {
+      if (!map.has(r.employeeDbId)) {
+        map.set(r.employeeDbId, { ...r, firstIn: r.punchIn, lastOut: r.punchOut });
+      } else {
+        const ex = map.get(r.employeeDbId)!;
+        if (r.punchIn  && (!ex.firstIn  || r.punchIn  < ex.firstIn))  ex.firstIn  = r.punchIn;
+        if (r.punchOut && (!ex.lastOut  || r.punchOut > ex.lastOut))  ex.lastOut  = r.punchOut;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [mode, filteredFeed]);
+
   // ── Day totals ──────────────────────────────────────────────────────────────
   const dayTotals = useMemo(() => {
     const c: Record<string, number> = {};
-    filteredFeed.forEach((r) => { c[r.status] = (c[r.status] ?? 0) + 1; });
+    dayGrouped.forEach((r) => { c[r.status] = (c[r.status] ?? 0) + 1; });
     return c;
-  }, [filteredFeed]);
+  }, [dayGrouped]);
 
   // ── Month filtered ──────────────────────────────────────────────────────────
   const filteredMonthly = useMemo(() => {
@@ -262,7 +278,7 @@ const HRAllAttendanceScreen: React.FC = () => {
               <Card style={{ marginBottom: 12 }}>
                 <Row style={{ justifyContent: 'space-around' }}>
                   <View style={{ alignItems: 'center' }}>
-                    <Text style={{ color: t.colors.text, fontWeight: '900', fontSize: 20 }}>{filteredFeed.length}</Text>
+                    <Text style={{ color: t.colors.text, fontWeight: '900', fontSize: 20 }}>{dayGrouped.length}</Text>
                     <Text style={{ color: t.colors.textMuted, fontSize: 11 }}>Total</Text>
                   </View>
                   {(['Present','Late','WFH','Leave','Absent'] as const).map((s) => (
@@ -274,42 +290,94 @@ const HRAllAttendanceScreen: React.FC = () => {
                 </Row>
               </Card>
 
-              {filteredFeed.length === 0 ? (
+              {dayGrouped.length === 0 ? (
                 <Card>
                   <Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 20 }}>
                     No attendance records for this date
                   </Text>
                 </Card>
               ) : (
-                filteredFeed.map((item) => (
-                  <Pressable
-                    key={item.id}
-                    onPress={() => nav.navigate('EmployeeAttendanceProfile', { employeeId: item.employeeDbId, name: item.name })}
-                    style={{ marginBottom: 8 }}
-                  >
-                    <Card>
-                      <Row style={{ justifyContent: 'space-between' }}>
-                        <Row style={{ flex: 1 }}>
-                          <Avatar name={item.name} />
-                          <View style={{ marginLeft: 12, flex: 1 }}>
-                            <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.name}</Text>
-                            <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                              {item.empCode} · {item.department}
-                            </Text>
-                            {item.punchIn && (
-                              <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 1 }}>
-                                {`In: ${new Date(item.punchIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                                {item.punchOut ? ` · Out: ${new Date(item.punchOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
-                                {item.workHours ? ` · ${item.workHours.toFixed(1)}h` : ''}
+                dayGrouped.map((item) => {
+                  const fmt = (iso: string | null) =>
+                    iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+                  const checkIn  = fmt(item.firstIn ?? null);
+                  const checkOut = fmt(item.lastOut ?? null);
+                  const hasIn    = !!(item.firstIn);
+                  const hasOut   = !!(item.lastOut);
+
+                  return (
+                    <Pressable
+                      key={item.employeeDbId}
+                      onPress={() => nav.navigate('EmployeeAttendanceProfile', { employeeId: item.employeeDbId, name: item.name })}
+                      style={{ marginBottom: 8 }}
+                    >
+                      <Card style={{ paddingBottom: 12 }}>
+                        {/* Top row: avatar + name + status */}
+                        <Row style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+                          <Row style={{ flex: 1 }}>
+                            <Avatar name={item.name} />
+                            <View style={{ marginLeft: 12, flex: 1 }}>
+                              <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 14 }}>{item.name}</Text>
+                              <Text style={{ color: t.colors.textMuted, fontSize: 11, marginTop: 2 }}>
+                                {item.empCode} · {item.department}
                               </Text>
-                            )}
+                            </View>
+                          </Row>
+                          <Badge label={item.status} color={sc(item.status)} />
+                        </Row>
+
+                        {/* Divider */}
+                        <View style={{ height: 1, backgroundColor: t.colors.border + '60', marginBottom: 10 }} />
+
+                        {/* Check-in / Check-out rows */}
+                        <Row style={{ gap: 12 }}>
+                          {/* Check In */}
+                          <View style={{
+                            flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
+                            backgroundColor: hasIn ? '#22C55E18' : t.colors.surfaceAlt,
+                            borderRadius: 8, padding: 10,
+                            borderWidth: 1, borderColor: hasIn ? '#22C55E50' : t.colors.border,
+                          }}>
+                            <Ionicons name="log-in-outline" size={18} color={hasIn ? '#22C55E' : t.colors.textMuted} />
+                            <View>
+                              <Text style={{ color: t.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                                First In
+                              </Text>
+                              <Text style={{ color: hasIn ? '#22C55E' : t.colors.textMuted, fontWeight: '800', fontSize: 15, marginTop: 1 }}>
+                                {checkIn}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Check Out */}
+                          <View style={{
+                            flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
+                            backgroundColor: hasOut ? '#EF444418' : t.colors.surfaceAlt,
+                            borderRadius: 8, padding: 10,
+                            borderWidth: 1, borderColor: hasOut ? '#EF444450' : t.colors.border,
+                          }}>
+                            <Ionicons name="log-out-outline" size={18} color={hasOut ? '#EF4444' : t.colors.textMuted} />
+                            <View>
+                              <Text style={{ color: t.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                                Last Out
+                              </Text>
+                              <Text style={{ color: hasOut ? '#EF4444' : t.colors.textMuted, fontWeight: '800', fontSize: 15, marginTop: 1 }}>
+                                {checkOut}
+                              </Text>
+                            </View>
                           </View>
                         </Row>
-                        <Badge label={item.status} color={sc(item.status)} />
-                      </Row>
-                    </Card>
-                  </Pressable>
-                ))
+
+                        {/* Work hours — only if both punches present */}
+                        {item.workHours != null && item.workHours > 0 && (
+                          <Text style={{ color: t.colors.textMuted, fontSize: 11, textAlign: 'right', marginTop: 8 }}>
+                            Total: {item.workHours.toFixed(1)}h
+                          </Text>
+                        )}
+                      </Card>
+                    </Pressable>
+                  );
+                })
               )}
             </>
           )}
