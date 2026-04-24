@@ -4,18 +4,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Avatar, Badge, Card, Row, SectionHeader } from '@/components/UI';
 import { statusColor, useTheme } from '@/theme';
-import { getLiveFeed, getMonthlyReport } from '@/services/api';
+import { getAttendanceByDate, getMonthlyReport } from '@/services/api';
+import type { AttendanceByDateEntry } from '@/services/api';
 
-type RangeMode = 'Day' | 'Month';
+type RangeMode = 'Day' | 'Week' | 'Month';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-interface LiveEntry {
-  id: string; empCode: string; name: string; department: string;
-  punchIn: string | null; punchOut: string | null;
-  workHours: number | null; status: string; source: string;
+function mondayOfWeek(d: Date): Date {
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const r = new Date(d);
+  r.setDate(r.getDate() + diff);
+  r.setHours(0, 0, 0, 0);
+  return r;
 }
 
 interface MonthlySummaryEntry {
@@ -23,33 +28,52 @@ interface MonthlySummaryEntry {
   present: number; late: number; absent: number; leave: number; totalWorkHours: string;
 }
 
+const STATUSES = ['All', 'Present', 'Late', 'WFH', 'Leave', 'Absent'] as const;
+
 const HRAllAttendanceScreen: React.FC = () => {
   const t = useTheme();
   const nav = useNavigation<any>();
+
   const [mode, setMode] = useState<RangeMode>('Day');
   const [anchor, setAnchor] = useState(new Date());
   const [search, setSearch] = useState('');
   const [dept, setDept] = useState('All');
-  const [filter, setFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
 
-  // Day mode data
-  const [feed, setFeed] = useState<LiveEntry[]>([]);
-  const [feedDate, setFeedDate] = useState('');
+  const [feed, setFeed] = useState<AttendanceByDateEntry[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
 
-  // Month mode data
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummaryEntry[]>([]);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
 
-  const fetchDayFeed = useCallback(async () => {
+  // ── Range bounds ────────────────────────────────────────────────────────────
+  const range = useMemo(() => {
+    if (mode === 'Day') {
+      const d = ymd(anchor);
+      return { from: d, to: d, label: anchor.toDateString() };
+    }
+    if (mode === 'Week') {
+      const mon = mondayOfWeek(anchor);
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      return { from: ymd(mon), to: ymd(sun), label: `${ymd(mon)} → ${ymd(sun)}` };
+    }
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const last  = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    return { from: ymd(first), to: ymd(last), label: `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}` };
+  }, [mode, anchor]);
+
+  // ── Fetch Day/Week ──────────────────────────────────────────────────────────
+  const fetchFeed = useCallback(async () => {
     setFeedLoading(true);
     try {
-      const res = await getLiveFeed();
+      const res = await getAttendanceByDate(
+        mode === 'Day' ? { date: range.from } : { from: range.from, to: range.to }
+      );
       setFeed(res.feed);
-      setFeedDate(res.date);
     } catch { /* ignore */ } finally { setFeedLoading(false); }
-  }, []);
+  }, [mode, range.from, range.to]);
 
+  // ── Fetch Month ─────────────────────────────────────────────────────────────
   const fetchMonthly = useCallback(async () => {
     setMonthlyLoading(true);
     try {
@@ -63,45 +87,59 @@ const HRAllAttendanceScreen: React.FC = () => {
   }, [anchor, dept]);
 
   useEffect(() => {
-    if (mode === 'Day') fetchDayFeed();
-  }, [mode, fetchDayFeed]);
+    if (mode !== 'Month') fetchFeed();
+    else fetchMonthly();
+  }, [mode, fetchFeed, fetchMonthly]);
 
-  useEffect(() => {
-    if (mode === 'Month') fetchMonthly();
-  }, [mode, fetchMonthly]);
-
+  // ── Departments list ────────────────────────────────────────────────────────
   const departments = useMemo(() => {
-    const all = mode === 'Day'
+    const src = mode !== 'Month'
       ? feed.map((f) => f.department)
       : monthlySummary.map((s) => s.department);
-    return ['All', ...Array.from(new Set(all)).filter(Boolean).sort()];
+    return ['All', ...Array.from(new Set(src)).filter(Boolean).sort()];
   }, [mode, feed, monthlySummary]);
 
-  const statuses = ['All', 'Present', 'WFH', 'Leave', 'Absent'];
-
-  // Day mode filtered rows
-  const dayRows = useMemo(() => {
+  // ── Day filtered rows ───────────────────────────────────────────────────────
+  const filteredFeed = useMemo(() => {
     let rows = feed;
     if (dept !== 'All') rows = rows.filter((r) => r.department === dept);
-    if (filter !== 'All') rows = rows.filter((r) => r.status === filter);
+    if (statusFilter !== 'All') rows = rows.filter((r) => r.status === statusFilter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      rows = rows.filter((r) =>
-        r.name.toLowerCase().includes(q) || r.empCode.toLowerCase().includes(q)
-      );
+      rows = rows.filter((r) => r.name.toLowerCase().includes(q) || r.empCode.toLowerCase().includes(q));
     }
     return rows.sort((a, b) => a.name.localeCompare(b.name));
-  }, [feed, dept, filter, search]);
+  }, [feed, dept, statusFilter, search]);
 
-  // Day totals
+  // ── Week: group by employee ─────────────────────────────────────────────────
+  const weekData = useMemo(() => {
+    if (mode !== 'Week') return { list: [], weekDates: [] };
+    const mon = new Date(range.from + 'T00:00:00Z');
+    const weekDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(mon); d.setUTCDate(mon.getUTCDate() + i); return ymd(d);
+    });
+    const map = new Map<string, {
+      empCode: string; employeeDbId: string; name: string; department: string;
+      days: Record<string, string>;
+    }>();
+    filteredFeed.forEach((r) => {
+      if (!map.has(r.empCode)) {
+        map.set(r.empCode, { empCode: r.empCode, employeeDbId: r.employeeDbId, name: r.name, department: r.department, days: {} });
+      }
+      map.get(r.empCode)!.days[r.date] = r.status;
+    });
+    return { list: Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name)), weekDates };
+  }, [mode, filteredFeed, range.from]);
+
+  // ── Day totals ──────────────────────────────────────────────────────────────
   const dayTotals = useMemo(() => {
-    const c: Record<string, number> = { Present: 0, WFH: 0, Leave: 0, Absent: 0 };
-    dayRows.forEach((r) => { c[r.status] = (c[r.status] ?? 0) + 1; });
+    const c: Record<string, number> = {};
+    filteredFeed.forEach((r) => { c[r.status] = (c[r.status] ?? 0) + 1; });
     return c;
-  }, [dayRows]);
+  }, [filteredFeed]);
 
-  // Monthly filtered rows
-  const monthRows = useMemo(() => {
+  // ── Month filtered ──────────────────────────────────────────────────────────
+  const filteredMonthly = useMemo(() => {
     let rows = monthlySummary;
     if (dept !== 'All') rows = rows.filter((r) => r.department === dept);
     if (search.trim()) {
@@ -111,26 +149,29 @@ const HRAllAttendanceScreen: React.FC = () => {
     return rows.sort((a, b) => a.name.localeCompare(b.name));
   }, [monthlySummary, dept, search]);
 
-  const isLoading = mode === 'Day' ? feedLoading : monthlyLoading;
-
+  // ── Navigation ──────────────────────────────────────────────────────────────
   const shiftAnchor = (delta: number) => {
     const d = new Date(anchor);
-    if (mode === 'Day') d.setDate(d.getDate() + delta);
+    if (mode === 'Day')   d.setDate(d.getDate() + delta);
+    else if (mode === 'Week')  d.setDate(d.getDate() + delta * 7);
     else d.setMonth(d.getMonth() + delta);
     setAnchor(d);
   };
 
+  const isLoading = mode !== 'Month' ? feedLoading : monthlyLoading;
+  const sc = (s: string) => statusColor(s as any, t);
+
   return (
     <ScrollView style={{ flex: 1, backgroundColor: t.colors.background }} contentContainerStyle={{ padding: 16 }}>
-      {/* Mode toggle */}
+
+      {/* Mode selector */}
       <Row style={{ gap: 6, marginBottom: 12 }}>
-        {(['Day', 'Month'] as const).map((m) => (
+        {(['Day', 'Week', 'Month'] as const).map((m) => (
           <Pressable
             key={m} onPress={() => setMode(m)}
             style={{
-              flex: 1, paddingVertical: 10, borderRadius: 10,
+              flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center',
               backgroundColor: mode === m ? t.colors.primary : t.colors.surface,
-              alignItems: 'center',
               borderWidth: 1, borderColor: mode === m ? t.colors.primary : t.colors.border,
             }}
           >
@@ -139,29 +180,21 @@ const HRAllAttendanceScreen: React.FC = () => {
         ))}
       </Row>
 
-      {/* Date nav (Day mode shows today only — refresh; Month mode shows month) */}
+      {/* Date navigator */}
       <Row style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        {mode === 'Month' ? (
-          <Pressable onPress={() => shiftAnchor(-1)} style={{ padding: 8 }}>
-            <Ionicons name="chevron-back" size={20} color={t.colors.primary} />
-          </Pressable>
-        ) : <View style={{ width: 36 }} />}
-        <Pressable onPress={mode === 'Day' ? fetchDayFeed : fetchMonthly} style={{ alignItems: 'center' }}>
-          <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 15 }}>
-            {mode === 'Day'
-              ? (feedDate ? new Date(feedDate).toDateString() : new Date().toDateString())
-              : `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`}
-          </Text>
+        <Pressable onPress={() => shiftAnchor(-1)} style={{ padding: 10 }}>
+          <Ionicons name="chevron-back" size={22} color={t.colors.primary} />
+        </Pressable>
+        <Pressable onPress={() => { if (mode !== 'Month') fetchFeed(); else fetchMonthly(); }} style={{ alignItems: 'center' }}>
+          <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 14 }}>{range.label}</Text>
           <Text style={{ color: t.colors.primary, fontSize: 11 }}>tap to refresh</Text>
         </Pressable>
-        {mode === 'Month' ? (
-          <Pressable onPress={() => shiftAnchor(1)} style={{ padding: 8 }}>
-            <Ionicons name="chevron-forward" size={20} color={t.colors.primary} />
-          </Pressable>
-        ) : <View style={{ width: 36 }} />}
+        <Pressable onPress={() => shiftAnchor(1)} style={{ padding: 10 }}>
+          <Ionicons name="chevron-forward" size={22} color={t.colors.primary} />
+        </Pressable>
       </Row>
 
-      {/* Search bar */}
+      {/* Search */}
       <View style={{
         backgroundColor: t.colors.surface, borderRadius: 10,
         paddingHorizontal: 12, paddingVertical: 10,
@@ -175,9 +208,14 @@ const HRAllAttendanceScreen: React.FC = () => {
           placeholderTextColor={t.colors.textMuted}
           style={{ flex: 1, color: t.colors.text }}
         />
+        {search.length > 0 && (
+          <Pressable onPress={() => setSearch('')}>
+            <Ionicons name="close-circle" size={18} color={t.colors.textMuted} />
+          </Pressable>
+        )}
       </View>
 
-      {/* Dept filter */}
+      {/* Department filter */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
         <Row style={{ gap: 6, paddingRight: 8 }}>
           {departments.map((d) => (
@@ -195,20 +233,20 @@ const HRAllAttendanceScreen: React.FC = () => {
         </Row>
       </ScrollView>
 
-      {/* Status filter (Day only) */}
-      {mode === 'Day' && (
+      {/* Status filter — Day + Week only */}
+      {mode !== 'Month' && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
           <Row style={{ gap: 6, paddingRight: 8 }}>
-            {statuses.map((s) => (
+            {STATUSES.map((s) => (
               <Pressable
-                key={s} onPress={() => setFilter(s)}
+                key={s} onPress={() => setStatusFilter(s)}
                 style={{
                   paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999,
-                  backgroundColor: filter === s ? t.colors.primary : t.colors.surface,
-                  borderWidth: 1, borderColor: filter === s ? t.colors.primary : t.colors.border,
+                  backgroundColor: statusFilter === s ? t.colors.primary : t.colors.surface,
+                  borderWidth: 1, borderColor: statusFilter === s ? t.colors.primary : t.colors.border,
                 }}
               >
-                <Text style={{ color: filter === s ? '#fff' : t.colors.text, fontWeight: '600', fontSize: 12 }}>{s}</Text>
+                <Text style={{ color: statusFilter === s ? '#fff' : t.colors.text, fontWeight: '600', fontSize: 12 }}>{s}</Text>
               </Pressable>
             ))}
           </Row>
@@ -217,90 +255,178 @@ const HRAllAttendanceScreen: React.FC = () => {
 
       {isLoading ? (
         <ActivityIndicator color={t.colors.primary} style={{ marginTop: 40 }} />
-      ) : mode === 'Day' ? (
-        <>
-          {/* Day totals bar */}
-          <Card style={{ marginBottom: 12 }}>
-            <Row style={{ justifyContent: 'space-around' }}>
-              <View style={{ alignItems: 'center' }}>
-                <Text style={{ color: t.colors.text, fontWeight: '900', fontSize: 18 }}>{dayRows.length}</Text>
-                <Text style={{ color: t.colors.textMuted, fontSize: 11 }}>Total</Text>
-              </View>
-              {['Present','WFH','Leave','Absent'].map((s) => (
-                <View key={s} style={{ alignItems: 'center' }}>
-                  <Text style={{ color: statusColor(s as any, t), fontWeight: '900', fontSize: 18 }}>
-                    {dayTotals[s] ?? 0}
-                  </Text>
-                  <Text style={{ color: t.colors.textMuted, fontSize: 11 }}>{s}</Text>
-                </View>
-              ))}
-            </Row>
-          </Card>
-
-          {dayRows.length === 0 ? (
-            <Card><Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 16 }}>No records found</Text></Card>
-          ) : (
-            dayRows.map((item) => (
-              <Pressable
-                key={item.id}
-                onPress={() => nav.navigate('EmployeeAttendanceProfile', { empCode: item.empCode, name: item.name })}
-                style={{ marginBottom: 10 }}
-              >
-                <Card>
-                  <Row style={{ justifyContent: 'space-between' }}>
-                    <Row style={{ flex: 1 }}>
-                      <Avatar name={item.name} />
-                      <View style={{ marginLeft: 12, flex: 1 }}>
-                        <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.name}</Text>
-                        <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                          {item.empCode} · {item.department}
-                        </Text>
-                        {(item.punchIn || item.punchOut) && (
-                          <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                            {item.punchIn
-                              ? `In: ${new Date(item.punchIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                              : 'Not in'}{' '}
-                            {item.punchOut
-                              ? `· Out: ${new Date(item.punchOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                              : ''}{' '}
-                            {item.workHours ? `· ${item.workHours.toFixed(1)}h` : ''}
-                          </Text>
-                        )}
-                      </View>
-                    </Row>
-                    <Badge label={item.status} color={statusColor(item.status as any, t)} />
-                  </Row>
-                </Card>
-              </Pressable>
-            ))
-          )}
-        </>
       ) : (
         <>
-          {/* Monthly summary */}
-          <SectionHeader title={`${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()} — ${monthRows.length} employees`} />
-          {monthRows.length === 0 ? (
-            <Card><Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 16 }}>No records found</Text></Card>
-          ) : (
-            monthRows.map((item) => (
-              <Card key={item.employeeId} style={{ marginBottom: 10 }}>
-                <Row style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.name}</Text>
-                    <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                      {item.employeeId} · {item.department}
-                    </Text>
+          {/* ── DAY VIEW ─────────────────────────────────────────────────── */}
+          {mode === 'Day' && (
+            <>
+              <Card style={{ marginBottom: 12 }}>
+                <Row style={{ justifyContent: 'space-around' }}>
+                  <View style={{ alignItems: 'center' }}>
+                    <Text style={{ color: t.colors.text, fontWeight: '900', fontSize: 20 }}>{filteredFeed.length}</Text>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 11 }}>Total</Text>
                   </View>
-                  <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{item.totalWorkHours}h</Text>
-                </Row>
-                <Row style={{ gap: 8, flexWrap: 'wrap' }}>
-                  <Badge label={`Present: ${item.present}`} color={statusColor('Present', t)} />
-                  <Badge label={`Late: ${item.late}`} color={statusColor('Absent', t)} />
-                  <Badge label={`Absent: ${item.absent}`} color="#9CA3AF" />
-                  {item.leave > 0 && <Badge label={`Leave: ${item.leave}`} color={statusColor('Leave', t)} />}
+                  {(['Present','Late','WFH','Leave','Absent'] as const).map((s) => (
+                    <View key={s} style={{ alignItems: 'center' }}>
+                      <Text style={{ color: sc(s), fontWeight: '900', fontSize: 20 }}>{dayTotals[s] ?? 0}</Text>
+                      <Text style={{ color: t.colors.textMuted, fontSize: 11 }}>{s}</Text>
+                    </View>
+                  ))}
                 </Row>
               </Card>
-            ))
+
+              {filteredFeed.length === 0 ? (
+                <Card>
+                  <Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 20 }}>
+                    No attendance records for this date
+                  </Text>
+                </Card>
+              ) : (
+                filteredFeed.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => nav.navigate('EmployeeAttendanceProfile', { employeeId: item.employeeDbId, name: item.name })}
+                    style={{ marginBottom: 8 }}
+                  >
+                    <Card>
+                      <Row style={{ justifyContent: 'space-between' }}>
+                        <Row style={{ flex: 1 }}>
+                          <Avatar name={item.name} />
+                          <View style={{ marginLeft: 12, flex: 1 }}>
+                            <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.name}</Text>
+                            <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                              {item.empCode} · {item.department}
+                            </Text>
+                            {item.punchIn && (
+                              <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 1 }}>
+                                {`In: ${new Date(item.punchIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                {item.punchOut ? ` · Out: ${new Date(item.punchOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                {item.workHours ? ` · ${item.workHours.toFixed(1)}h` : ''}
+                              </Text>
+                            )}
+                          </View>
+                        </Row>
+                        <Badge label={item.status} color={sc(item.status)} />
+                      </Row>
+                    </Card>
+                  </Pressable>
+                ))
+              )}
+            </>
+          )}
+
+          {/* ── WEEK VIEW ────────────────────────────────────────────────── */}
+          {mode === 'Week' && (
+            <>
+              <SectionHeader title={`Week: ${range.from} → ${range.to}`} />
+              <Card style={{ marginBottom: 8 }}>
+                <Row>
+                  <View style={{ width: 130 }}>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 11, fontWeight: '700' }}>Employee</Text>
+                  </View>
+                  {weekData.weekDates.map((d) => {
+                    const dd = new Date(d + 'T12:00:00Z');
+                    return (
+                      <View key={d} style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ color: t.colors.textMuted, fontSize: 10, fontWeight: '700' }}>
+                          {DAYS[dd.getUTCDay()]}
+                        </Text>
+                        <Text style={{ color: t.colors.textMuted, fontSize: 10 }}>{dd.getUTCDate()}</Text>
+                      </View>
+                    );
+                  })}
+                </Row>
+              </Card>
+
+              {weekData.list.length === 0 ? (
+                <Card>
+                  <Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 20 }}>
+                    No records for this week
+                  </Text>
+                </Card>
+              ) : (
+                weekData.list.map((emp) => (
+                  <Pressable
+                    key={emp.empCode}
+                    onPress={() => nav.navigate('EmployeeAttendanceProfile', { employeeId: emp.employeeDbId, name: emp.name })}
+                    style={{ marginBottom: 6 }}
+                  >
+                    <Card>
+                      <Row style={{ alignItems: 'center' }}>
+                        <View style={{ width: 130 }}>
+                          <Text style={{ color: t.colors.text, fontWeight: '700', fontSize: 12 }} numberOfLines={1}>{emp.name}</Text>
+                          <Text style={{ color: t.colors.textMuted, fontSize: 10 }}>{emp.department}</Text>
+                        </View>
+                        {weekData.weekDates.map((d) => {
+                          const s = emp.days[d];
+                          const dow = new Date(d + 'T12:00:00Z').getUTCDay();
+                          const isWeekend = dow === 0 || dow === 6;
+                          return (
+                            <View key={d} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
+                              {s ? (
+                                <View style={{
+                                  width: 28, height: 28, borderRadius: 6,
+                                  backgroundColor: sc(s) + '30',
+                                  borderWidth: 1, borderColor: sc(s),
+                                  alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                  <Text style={{ color: sc(s), fontSize: 8, fontWeight: '800' }}>
+                                    {s.substring(0, 2).toUpperCase()}
+                                  </Text>
+                                </View>
+                              ) : (
+                                <View style={{
+                                  width: 28, height: 28, borderRadius: 6,
+                                  backgroundColor: isWeekend ? t.colors.border + '40' : t.colors.danger + '15',
+                                  borderWidth: 1, borderColor: isWeekend ? t.colors.border : t.colors.danger + '30',
+                                  alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                  <Text style={{ fontSize: 8, color: isWeekend ? t.colors.textMuted : t.colors.danger, fontWeight: '700' }}>
+                                    {isWeekend ? 'WO' : 'AB'}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </Row>
+                    </Card>
+                  </Pressable>
+                ))
+              )}
+            </>
+          )}
+
+          {/* ── MONTH VIEW ──────────────────────────────────────────────── */}
+          {mode === 'Month' && (
+            <>
+              <SectionHeader title={`${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()} — ${filteredMonthly.length} employees`} />
+              {filteredMonthly.length === 0 ? (
+                <Card>
+                  <Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 20 }}>No records for this month</Text>
+                </Card>
+              ) : (
+                filteredMonthly.map((item) => (
+                  <Card key={item.employeeId} style={{ marginBottom: 8 }}>
+                    <Row style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.name}</Text>
+                        <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                          {item.employeeId} · {item.department}
+                        </Text>
+                      </View>
+                      <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>{item.totalWorkHours}h</Text>
+                    </Row>
+                    <Row style={{ gap: 6, flexWrap: 'wrap' }}>
+                      <Badge label={`Present: ${item.present}`} color={sc('Present')} />
+                      <Badge label={`Late: ${item.late}`}       color={sc('Late')} />
+                      <Badge label={`Absent: ${item.absent}`}   color="#9CA3AF" />
+                      {item.leave > 0 && <Badge label={`Leave: ${item.leave}`} color={sc('Leave')} />}
+                    </Row>
+                  </Card>
+                ))
+              )}
+            </>
           )}
         </>
       )}

@@ -286,6 +286,22 @@ export async function getLiveFeedHR() {
   return getLiveFeed();
 }
 
+/** HR: attendance for a specific date or date range (active employees only) */
+export interface AttendanceByDateEntry {
+  id: string; empCode: string; employeeDbId: string; name: string; department: string;
+  date: string; punchIn: string | null; punchOut: string | null;
+  workHours: number | null; status: string; source: string | null;
+}
+export async function getAttendanceByDate(opts: { date?: string; from?: string; to?: string }) {
+  const qs = new URLSearchParams();
+  if (opts.date) qs.set('date', opts.date);
+  if (opts.from) qs.set('from', opts.from);
+  if (opts.to)   qs.set('to',   opts.to);
+  return api.get<{ feed: AttendanceByDateEntry[]; from: string; to: string; total: number }>(
+    `/attendance/by-date?${qs}`
+  );
+}
+
 // ── Leaves ────────────────────────────────────────────────────────────────────
 export interface LeaveTypeAPI { id: string; name: string; daysAllowed: number }
 export interface LeaveBalanceAPI { leaveTypeId: string; allocated: number; used: number; remaining: number; leaveType: { name: string } }

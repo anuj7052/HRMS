@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar, Badge, Card, Row, SectionHeader } from '@/components/UI';
@@ -6,6 +6,7 @@ import { palette, useTheme } from '@/theme';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { logout } from '@/store/authSlice';
 import { jobRoleToSystemRole } from '@/types';
+import { getEmployeeProfile, type EmployeeAPI } from '@/services/api';
 
 const ProfileScreen: React.FC<any> = ({ navigation }) => {
   const t = useTheme();
@@ -18,6 +19,18 @@ const ProfileScreen: React.FC<any> = ({ navigation }) => {
   const accessColor = effectiveRole === 'hr' ? '#8B5CF6'
     : effectiveRole === 'manager' ? '#F59E0B'
     : '#16A34A';
+
+  const [profile, setProfile] = useState<EmployeeAPI | null>(null);
+
+  useEffect(() => {
+    getEmployeeProfile().then(setProfile).catch(() => {/* ignore */});
+  }, []);
+
+  const phone      = profile?.phone ?? '';
+  const department = profile?.department ?? profile?.user?.department ?? '';
+  const designation = profile?.designation ?? '';
+  const empCode    = profile?.employeeId ?? user.empCode ?? '';
+  const joinDate   = profile?.joinDate ? new Date(profile.joinDate).toLocaleDateString() : '';
 
   const Item: React.FC<{ icon: any; label: string; onPress?: () => void; danger?: boolean }> = ({
     icon,
@@ -43,9 +56,9 @@ const ProfileScreen: React.FC<any> = ({ navigation }) => {
           <Avatar name={user.name} size={64} />
           <View style={{ marginLeft: 14, flex: 1 }}>
             <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 18 }}>{user.name}</Text>
-            <Text style={{ color: t.colors.textMuted, marginTop: 2 }}>{user.designation}</Text>
+            <Text style={{ color: t.colors.textMuted, marginTop: 2 }}>{designation || user.designation}</Text>
             <Row style={{ gap: 6, marginTop: 8 }}>
-              <Badge label={user.empCode} />
+              {empCode ? <Badge label={empCode} /> : null}
               <Badge
                 label={user.workMode}
                 color={user.workMode === 'WFH' ? palette.wfh : user.workMode === 'WFO' ? palette.primary : palette.accent}
@@ -71,17 +84,17 @@ const ProfileScreen: React.FC<any> = ({ navigation }) => {
         <Row style={{ justifyContent: 'space-between', marginTop: 10 }}>
           <View>
             <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>Phone</Text>
-            <Text style={{ color: t.colors.text }}>{user.phone}</Text>
+            <Text style={{ color: t.colors.text }}>{phone || '—'}</Text>
           </View>
         </Row>
         <Row style={{ justifyContent: 'space-between', marginTop: 10 }}>
           <View>
             <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>Department</Text>
-            <Text style={{ color: t.colors.text }}>{user.department}</Text>
+            <Text style={{ color: t.colors.text }}>{department || '—'}</Text>
           </View>
           <View>
-            <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>Shift</Text>
-            <Text style={{ color: t.colors.text }}>{user.shift}</Text>
+            <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>Join Date</Text>
+            <Text style={{ color: t.colors.text }}>{joinDate || '—'}</Text>
           </View>
         </Row>
       </Card>

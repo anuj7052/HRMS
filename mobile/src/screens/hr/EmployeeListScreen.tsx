@@ -66,28 +66,51 @@ const EmployeeListScreen: React.FC<any> = ({ navigation }) => {
           onEndReachedThreshold={0.3}
           ListFooterComponent={loading && employees.length > 0 ? <ActivityIndicator color={t.colors.primary} style={{ marginVertical: 16 }} /> : null}
           renderItem={({ item }) => (
-            <Pressable onPress={() => navigation.navigate('EmployeeAttendanceProfile', { employeeId: item.id, name: item.user.name })}>
-              <Card>
-                <Row style={{ justifyContent: 'space-between' }}>
-                  <Row style={{ flex: 1 }}>
-                    <Avatar name={item.user.name} />
-                    <View style={{ marginLeft: 12, flex: 1 }}>
-                      <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.user.name}</Text>
-                      <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
-                        {item.employeeId} · {item.department}
-                      </Text>
-                      <Text style={{ color: t.colors.textMuted, fontSize: 11, marginTop: 1 }}>{item.designation}</Text>
-                    </View>
-                  </Row>
-                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    <Badge
-                      label={item.isActive ? 'Active' : 'Inactive'}
-                      color={item.isActive ? palette.present : palette.absent}
-                    />
+            <Card>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <Row style={{ flex: 1 }}>
+                  <Avatar name={item.user.name} />
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.user.name}</Text>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
+                      {item.employeeId} · {item.department}
+                    </Text>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 11, marginTop: 1 }}>{item.designation}</Text>
                   </View>
                 </Row>
-              </Card>
-            </Pressable>
+                <Badge
+                  label={item.isActive ? 'Active' : 'Inactive'}
+                  color={item.isActive ? palette.present : palette.absent}
+                />
+              </Row>
+              {/* Action buttons */}
+              <Row style={{ gap: 8, marginTop: 12 }}>
+                <Pressable
+                  onPress={() => navigation.navigate('EmployeeAttendanceProfile', { employeeId: item.id, name: item.user.name })}
+                  style={{
+                    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                    paddingVertical: 8, borderRadius: 8, gap: 4,
+                    backgroundColor: t.colors.primary + '15',
+                    borderWidth: 1, borderColor: t.colors.primary + '40',
+                  }}
+                >
+                  <Ionicons name="calendar-outline" size={14} color={t.colors.primary} />
+                  <Text style={{ color: t.colors.primary, fontWeight: '700', fontSize: 12 }}>Attendance</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => navigation.navigate('EditEmployee', { employeeId: item.id })}
+                  style={{
+                    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                    paddingVertical: 8, borderRadius: 8, gap: 4,
+                    backgroundColor: t.colors.info + '15',
+                    borderWidth: 1, borderColor: t.colors.info + '40',
+                  }}
+                >
+                  <Ionicons name="person-outline" size={14} color={t.colors.info} />
+                  <Text style={{ color: t.colors.info, fontWeight: '700', fontSize: 12 }}>Profile</Text>
+                </Pressable>
+              </Row>
+            </Card>
           )}
         />
       )}
