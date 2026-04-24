@@ -335,12 +335,14 @@ export async function getEmployees(params?: {
   limit?: number;
   search?: string;
   department?: string;
+  status?: 'active' | 'inactive' | 'all';
 }): Promise<{ data: EmployeeAPI[]; total: number; page: number; pages: number }> {
   const qs = new URLSearchParams();
   if (params?.page)       qs.set('page', String(params.page));
   if (params?.limit)      qs.set('limit', String(params.limit));
   if (params?.search)     qs.set('search', params.search);
   if (params?.department) qs.set('department', params.department);
+  if (params?.status)     qs.set('status', params.status);
   const q = qs.toString();
   const raw = await api.get<{
     data?: EmployeeAPI[]; employees?: EmployeeAPI[];
@@ -352,6 +354,17 @@ export async function getEmployees(params?: {
     page: raw.page ?? 1,
     pages: raw.pages ?? raw.totalPages ?? 1,
   };
+}
+
+export async function getEmployeeById(id: string): Promise<EmployeeAPI> {
+  return api.get<EmployeeAPI>(`/employees/${id}`);
+}
+
+export async function updateEmployeeById(
+  id: string,
+  data: { name?: string; department?: string; designation?: string; phone?: string; address?: string; emergencyContact?: string; joinDate?: string; role?: string; isActive?: boolean },
+): Promise<void> {
+  return api.put(`/employees/${id}`, data);
 }
 
 export async function getEmployeeProfile(): Promise<EmployeeAPI> {

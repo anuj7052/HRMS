@@ -115,9 +115,9 @@ router.put('/:id', requireRole(['Admin', 'HR']), async (req: AuthRequest, res: R
   const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
   if (!employee) { res.status(404).json({ message: 'Employee not found' }); return; }
 
-  const { name, department, designation, shiftId, phone, address, emergencyContact, joinDate, role } = req.body as {
+  const { name, department, designation, shiftId, phone, address, emergencyContact, joinDate, role, isActive } = req.body as {
     name?: string; department?: string; designation?: string; shiftId?: string | null;
-    phone?: string; address?: string; emergencyContact?: string; joinDate?: string; role?: string;
+    phone?: string; address?: string; emergencyContact?: string; joinDate?: string; role?: string; isActive?: boolean;
   };
 
   if (name || department || role) {
@@ -134,6 +134,7 @@ router.put('/:id', requireRole(['Admin', 'HR']), async (req: AuthRequest, res: R
       ...(phone !== undefined && { phone }), ...(address !== undefined && { address }),
       ...(emergencyContact !== undefined && { emergencyContact }),
       ...(joinDate && { joinDate: new Date(joinDate) }),
+      ...(isActive !== undefined && { isActive }),
     },
   });
   res.json({ message: 'Employee updated' });

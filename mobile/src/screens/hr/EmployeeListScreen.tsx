@@ -23,7 +23,7 @@ const EmployeeListScreen: React.FC<any> = ({ navigation }) => {
   const fetchEmployees = useCallback(async (p = 1) => {
     setLoading(true);
     try {
-      const res = await getEmployees({ page: p, limit: 30, search: debouncedQ || undefined });
+      const res = await getEmployees({ page: p, limit: 30, search: debouncedQ || undefined, status: 'all' });
       setEmployees(p === 1 ? res.data : (prev) => [...prev, ...res.data]);
       setTotalPages(res.pages);
       setPage(p);
