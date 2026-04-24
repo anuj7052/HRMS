@@ -32,6 +32,7 @@ const EmployeeAttendanceProfileScreen: React.FC = () => {
   const [cur, sCur] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [logs, setLogs] = useState<AttendanceLogAPI[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   React.useLayoutEffect(() => {
     nav.setOptions({ title: empName || 'Attendance' });
@@ -146,24 +147,143 @@ const EmployeeAttendanceProfileScreen: React.FC = () => {
           <Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 16 }}>No records for this month</Text>
         </Card>
       ) : (
-        logs.map((item) => {
-          const checkIn = fmtTime(item.punchIn);
-          const checkOut = fmtTime(item.punchOut);
-          const dateStr = new Date(item.date).toDateString();
-          return (
-            <Card key={item.id} style={{ marginBottom: 8 }}>
-              <Row style={{ justifyContent: 'space-between' }}>
-                <View>
-                  <Text style={{ color: t.colors.text, fontWeight: '700' }}>{dateStr}</Text>
-                  <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 4 }}>
-                    {checkIn} – {checkOut} · {item.workHours?.toFixed(1) ?? '0.0'} hrs · {item.source ?? 'ESSL'}
-                  </Text>
+        <>
+          {/* ── Calendar Grid ──────────────────────────────────────────── */}
+          <Card style={{ marginBottom: 12, padding: 8 }}>
+            {/* Day-of-week header */}
+            <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+              {['S','M','T','W','T','F','S'].map((d, i) => (
+                <Text key={i} style={{ flex: 1, textAlign: 'center', color: t.colors.textMuted, fontWeight: '700', fontSize: 11 }}>{d}</Text>
+              ))}
+            </View>
+
+            {/* Cells */}
+            {(() => {
+              const { y, m } = cur;
+              const startDay = new Date(y, m, 1).getDay();
+              const daysInMonth = new Date(y, m + 1, 0).getDate();
+              const cells: (number | null)[] = [];
+              for (let i = 0; i < startDay; i++) cells.push(null);
+              for (let i = 1; i <= daysInMonth; i++) cells.push(i);
+              while (cells.length % 7 !== 0) cells.push(null);
+
+              const rows: (number | null)[][] = [];
+              for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+
+              const logMap: Record<string, AttendanceLogAPI> = {};
+              logs.forEach((l) => {
+                const d = new Date(l.date);
+                const key = `${y}-${String(m + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                logMap[key] = l;
+              });
+              const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+              return rows.map((row, ri) => (
+                <View key={ri} style={{ flexDirection: 'row', marginBottom: 4 }}>
+                  {row.map((day, ci) => {
+                    if (!day) return <View key={ci} style={{ flex: 1 }} />;
+                    const dateKey = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const log = logMap[dateKey];
+                    const color = log ? statusColor(log.status as any, t) : undefined;
+                    const dow = new Date(y, m, day).getDay();
+                    const isWknd = dow === 0 || dow === 6;
+                    const isToday = dateKey === todayStr;
+                    const isSelected = dateKey === selectedDay;
+
+                    return (
+                      <Pressable
+                        key={ci}
+                        onPress={() => setSelectedDay(isSelected ? null : dateKey)}
+                        style={{
+                          flex: 1, alignItems: 'center', paddingVertical: 5, marginHorizontal: 1, borderRadius: 8,
+                          backgroundColor: isSelected
+                            ? t.colors.primary + '40'
+                            : color ? color + '22' : isWknd ? t.colors.border + '30' : 'transparent',
+                          borderWidth: isToday ? 2 : isSelected ? 1 : 0,
+                          borderColor: isToday ? t.colors.primary : t.colors.primary + '80',
+                        }}
+                      >
+                        <Text style={{
+                          fontSize: 13, fontWeight: isToday ? '900' : '600',
+                          color: isWknd ? t.colors.textMuted : t.colors.text,
+                        }}>
+                          {day}
+                        </Text>
+                        {color && (
+                          <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: color, marginTop: 2 }} />
+                        )}
+                      </Pressable>
+                    );
+                  })}
                 </View>
-                <Badge label={item.status} color={statusColor(item.status as any, t)} />
-              </Row>
-            </Card>
-          );
-        })
+              ));
+            })()}
+
+            {/* Legend */}
+            <View style={{ flexDirection: 'row', gap: 10, justifyContent: 'center', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: t.colors.border }}>
+              {[{ label: 'Present', color: statusColor('Present', t) }, { label: 'Late', color: statusColor('Late', t) }, { label: 'Absent', color: '#9CA3AF' }, { label: 'WFH', color: statusColor('WFH', t) }].map((l) => (
+                <View key={l.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: l.color }} />
+                  <Text style={{ fontSize: 10, color: t.colors.textMuted }}>{l.label}</Text>
+                </View>
+              ))}
+            </View>
+          </Card>
+
+          {/* Selected day detail */}
+          {selectedDay && (() => {
+            const log = logs.find((l) => {
+              const d = new Date(l.date);
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === selectedDay;
+            });
+            if (!log) return <Card style={{ marginBottom: 8 }}><Text style={{ color: t.colors.textMuted, textAlign: 'center' }}>No record for this day</Text></Card>;
+            return (
+              <Card style={{ marginBottom: 10, borderWidth: 1, borderColor: t.colors.primary + '40' }}>
+                <Text style={{ color: t.colors.text, fontWeight: '800', marginBottom: 6 }}>
+                  {new Date(selectedDay + 'T12:00:00').toDateString()}
+                </Text>
+                <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 13 }}>
+                      {'Check-In: '}
+                      <Text style={{ color: '#22C55E', fontWeight: '800' }}>{fmtTime(log.punchIn)}</Text>
+                    </Text>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 13, marginTop: 3 }}>
+                      {'Check-Out: '}
+                      <Text style={{ color: '#EF4444', fontWeight: '800' }}>{fmtTime(log.punchOut)}</Text>
+                    </Text>
+                    {log.workHours != null && (
+                      <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 3 }}>
+                        Work: {log.workHours.toFixed(1)}h
+                      </Text>
+                    )}
+                  </View>
+                  <Badge label={log.status} color={statusColor(log.status as any, t)} />
+                </Row>
+              </Card>
+            );
+          })()}
+
+          {/* Daily log list */}
+          {logs.map((item) => {
+            const checkIn = fmtTime(item.punchIn);
+            const checkOut = fmtTime(item.punchOut);
+            const dateStr = new Date(item.date).toDateString();
+            return (
+              <Card key={item.id} style={{ marginBottom: 8 }}>
+                <Row style={{ justifyContent: 'space-between' }}>
+                  <View>
+                    <Text style={{ color: t.colors.text, fontWeight: '700' }}>{dateStr}</Text>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 4 }}>
+                      {checkIn} – {checkOut} · {item.workHours?.toFixed(1) ?? '0.0'} hrs · {item.source ?? 'ESSL'}
+                    </Text>
+                  </View>
+                  <Badge label={item.status} color={statusColor(item.status as any, t)} />
+                </Row>
+              </Card>
+            );
+          })}
+        </>
       )}
     </ScrollView>
   );

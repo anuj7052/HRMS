@@ -213,14 +213,15 @@ export async function submitWFHRequest(body: { date: string; mode: string; reaso
   return api.post('/attendance/wfh-request', body);
 }
 
-// ── Attendance by date (HR screens) ──────────────────────────────────────────
+// ── Typed interfaces ──────────────────────────────────────────────────────────
+
 export interface AttendanceByDateEntry {
   id: string;
   empCode: string;
   employeeDbId: string;
   name: string;
   department: string;
-  date: string;           // YYYY-MM-DD
+  date: string;
   punchIn: string | null;
   punchOut: string | null;
   workHours: number | null;
@@ -229,11 +230,66 @@ export interface AttendanceByDateEntry {
   attendanceMode?: string;
 }
 
-// Alias used by AttendanceLog / MonthlyCalendar screens
+/** Alias used by employee-facing screens */
 export type AttendanceLogAPI = AttendanceByDateEntry;
 
+export interface AttendanceDailyBreakdown {
+  date: string;
+  present: number;
+  late: number;
+  absent: number;
+}
+
+export interface MonthlySummaryEntry {
+  employeeId: string;
+  name: string;
+  department: string;
+  present: number;
+  late: number;
+  absent: number;
+  leave: number;
+  totalWorkHours: number;
+}
+
+export interface EmployeeAPI {
+  id: string;
+  employeeId: string;
+  department: string;
+  designation: string;
+  workMode: string;
+  isActive: boolean;
+  joinDate?: string;
+  phone?: string;
+  profilePhoto?: string;
+  user?: { id?: string; name?: string; email?: string; role?: string; department?: string };
+}
+
+export interface LeaveBalanceAPI {
+  id: string;
+  allocated: number;
+  used: number;
+  remaining: number;
+  leaveTypeId: string;
+  leaveType: { name: string };
+}
+
+export interface LeaveRequestAPI {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  totalDays: number;
+  reason: string;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  leaveTypeId: string;
+  leaveType: { name: string };
+  reviewComment?: string;
+  employee?: { user?: { name?: string; email?: string } };
+}
+
+// ── Attendance by date range (HR view) ───────────────────────────────────────
+
 export async function getAttendanceByDate(
-  params: { date: string } | { from: string; to: string }
+  params: { date: string } | { from: string; to: string },
 ): Promise<{ feed: AttendanceByDateEntry[]; total: number }> {
   const qs = 'date' in params
     ? `?date=${params.date}`
@@ -241,104 +297,83 @@ export async function getAttendanceByDate(
   return api.get(`/attendance/by-date${qs}`);
 }
 
-export interface AttendanceDailyBreakdown {
-  date: string; present: number; late: number; absent: number;
+// ── Attendance by employee (individual monthly log) ───────────────────────────
+
+export async function getAttendanceByEmployee(
+  employeeDbId: string,
+  month: number,
+  year: number,
+): Promise<{ logs: AttendanceLogAPI[] }> {
+  const raw = await api.get<{
+    logs: Array<{
+      id: string; date: string; punchIn?: string | null; punchOut?: string | null;
+      workHours?: number | null; status: string; source?: string; attendanceMode?: string;
+    }>;
+  }>(`/attendance/employee/${employeeDbId}?month=${month}&year=${year}`);
+  return {
+    logs: (raw.logs ?? []).map((l) => ({
+      id: l.id,
+      empCode: '',
+      employeeDbId,
+      name: '',
+      department: '',
+      date: l.date,
+      punchIn: l.punchIn ?? null,
+      punchOut: l.punchOut ?? null,
+      workHours: l.workHours ?? null,
+      status: l.status,
+      source: l.source ?? 'ESSL',
+      attendanceMode: l.attendanceMode,
+    })),
+  };
 }
 
-export interface MonthlySummaryEntry {
-  employeeId: string; name: string; department: string;
-  present: number; late: number; absent: number; leave: number; totalWorkHours: string;
+// ── Employee list ─────────────────────────────────────────────────────────────
+
+export async function getEmployees(params?: {
+  page?: number;
+  limit?: number;
+  search?: string;
+  department?: string;
+}): Promise<{ data: EmployeeAPI[]; total: number; page: number; pages: number }> {
+  const qs = new URLSearchParams();
+  if (params?.page)       qs.set('page', String(params.page));
+  if (params?.limit)      qs.set('limit', String(params.limit));
+  if (params?.search)     qs.set('search', params.search);
+  if (params?.department) qs.set('department', params.department);
+  const q = qs.toString();
+  const raw = await api.get<{
+    data?: EmployeeAPI[]; employees?: EmployeeAPI[];
+    total?: number; page?: number; pages?: number; totalPages?: number;
+  }>(`/employees${q ? `?${q}` : ''}`);
+  return {
+    data: raw.data ?? raw.employees ?? [],
+    total: raw.total ?? 0,
+    page: raw.page ?? 1,
+    pages: raw.pages ?? raw.totalPages ?? 1,
+  };
 }
+
+export async function getEmployeeProfile(): Promise<EmployeeAPI> {
+  return api.get<EmployeeAPI>('/employees/profile');
+}
+
+// ── Monthly report (HR view) ──────────────────────────────────────────────────
 
 export async function getMonthlyReport(
-  month: number, year: number, department?: string
-): Promise<{ summary: MonthlySummaryEntry[]; dailyBreakdown: AttendanceDailyBreakdown[]; month: number; year: number }> {
+  month: number,
+  year: number,
+  department?: string,
+): Promise<{ summary: MonthlySummaryEntry[]; dailyBreakdown: AttendanceDailyBreakdown[] }> {
   const qs = new URLSearchParams({ month: String(month), year: String(year) });
   if (department) qs.set('department', department);
   return api.get(`/reports/monthly?${qs.toString()}`);
 }
 
-// ── Employee helpers (HR screens) ─────────────────────────────────────────────
-// Matches actual backend shape: { data: [...], total, page, pages }
-// Each employee has nested user: { id, name, email, role }
-export interface EmployeeAPI {
-  id: string;
-  employeeId: string;
-  department: string;
-  designation: string;
-  joinDate: string;
-  isActive: boolean;
-  phone?: string;
-  profilePhoto?: string;
-  user?: { id?: string; name?: string; email?: string; role?: string; department?: string };
-}
-
-export async function getEmployees(params?: {
-  page?: number; limit?: number; search?: string; department?: string; status?: string;
-}): Promise<{ data: EmployeeAPI[]; total: number; page: number; pages: number }> {
-  const qs = new URLSearchParams();
-  if (params?.page)       qs.set('page',       String(params.page));
-  if (params?.limit)      qs.set('limit',      String(params.limit));
-  if (params?.search)     qs.set('search',     params.search);
-  if (params?.department) qs.set('department', params.department);
-  if (params?.status)     qs.set('status',     params.status ?? 'active');
-  const q = qs.toString();
-  return api.get(`/employees${q ? '?' + q : ''}`);
-}
-
-export async function getEmployeeProfile(): Promise<EmployeeAPI> {
-  return api.get('/employees/profile');
-}
-
-export async function getAttendanceByEmployee(
-  employeeDbId: string, month: number, year: number
-): Promise<{ logs: AttendanceLogAPI[]; month: number; year: number }> {
-  return api.get<any>(`/attendance/employee/${employeeDbId}?month=${month}&year=${year}`).then((res: any) => {
-    const logs: AttendanceLogAPI[] = (res.logs ?? []).map((l: any) => ({
-      id: l.id,
-      empCode: l.employee?.employeeId ?? '',
-      employeeDbId: l.employeeId ?? employeeDbId,
-      name: l.employee?.user?.name ?? '',
-      department: l.employee?.department ?? '',
-      date: typeof l.date === 'string' ? l.date.split('T')[0] : new Date(l.date).toISOString().split('T')[0],
-      punchIn: l.punchIn ?? null,
-      punchOut: l.punchOut ?? null,
-      workHours: l.workHours ?? null,
-      status: l.status,
-      source: l.source ?? 'essl',
-    }));
-    return { logs, month: res.month, year: res.year };
-  });
-}
-
 // ── Leave helpers ─────────────────────────────────────────────────────────────
-// Matches Prisma LeaveBalance model: allocated, used, remaining + leaveType.name
-export interface LeaveBalanceAPI {
-  id: string;
-  leaveTypeId: string;
-  year: number;
-  allocated: number;
-  used: number;
-  remaining: number;
-  leaveType: { name: string };
-}
 
 export async function getLeaveBalance(employeeDbId: string): Promise<LeaveBalanceAPI[]> {
   return api.get<LeaveBalanceAPI[]>(`/leaves/balance/${employeeDbId}`);
-}
-
-// Matches Prisma LeaveRequest model: leaveType.name, totalDays, fromDate, toDate
-export interface LeaveRequestAPI {
-  id: string;
-  employeeId?: string;
-  leaveType: { name: string };
-  fromDate: string;
-  toDate: string;
-  totalDays: number;
-  reason: string;
-  status: string;
-  reviewComment?: string;
-  employee?: { user?: { name?: string; email?: string } };
 }
 
 export async function getLeaveRequests(status?: string): Promise<LeaveRequestAPI[]> {
@@ -346,6 +381,10 @@ export async function getLeaveRequests(status?: string): Promise<LeaveRequestAPI
   return api.get<LeaveRequestAPI[]>(`/leaves${qs}`);
 }
 
-export async function reviewLeave(id: string, status: 'Approved' | 'Rejected', comment?: string): Promise<void> {
-  await api.put(`/leaves/${id}/review`, { status, ...(comment ? { reviewComment: comment } : {}) });
+export async function reviewLeave(
+  id: string,
+  status: 'Approved' | 'Rejected',
+  comment?: string,
+): Promise<{ message: string }> {
+  return api.put<{ message: string }>(`/leaves/${id}/review`, { status, ...(comment ? { comment } : {}) });
 }
