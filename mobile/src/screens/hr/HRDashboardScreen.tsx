@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Row } from '@/components/UI';
 import { palette, useTheme } from '@/theme';
 import { useAppSelector } from '@/store';
+import { getLiveFeed, getEmployees } from '@/services/api';
 
 // ─── Tile component ───────────────────────────────────────────────────────────
 interface TileProps {
@@ -87,28 +88,29 @@ const SectionLabel: React.FC<{ title: string }> = ({ title }) => {
 const HRDashboardScreen: React.FC<any> = ({ navigation }) => {
   const t = useTheme();
   const user = useAppSelector((s) => s.auth.user)!;
-  const employees = useAppSelector((s) => s.data.employees);
-  const attendance = useAppSelector((s) => s.data.attendance);
   const leaves = useAppSelector((s) => s.data.leaves);
   const wfhRequests = useAppSelector((s) => s.data.wfhRequests);
   const corrections = useAppSelector((s) => s.data.corrections);
   const notifications = useAppSelector((s) => s.data.notifications);
 
-  const today = new Date().toISOString().split('T')[0];
+  // Real stats from PostgreSQL
+  const [liveStats, setLiveStats] = useState({ total: 0, present: 0, absent: 0, late: 0 });
+  useEffect(() => {
+    Promise.all([getLiveFeed(), getEmployees({ limit: 1 })]).then(([feed, emp]) => {
+      const present = feed.feed.filter((f) => f.status === 'Present' || f.status === 'WFH').length;
+      const late = feed.feed.filter((f) => f.status === 'Late').length;
+      const total = emp.total;
+      setLiveStats({ total, present: present + late, absent: Math.max(0, total - present - late), late });
+    }).catch(() => {});
+  }, []);
+
   const unread = notifications.filter((n) => !n.read).length;
   const pendingLeaves = leaves.filter((l) => l.status === 'Pending').length;
   const pendingWFH = wfhRequests.filter((w) => w.status === 'Pending').length;
   const pendingCorrections = corrections.filter((c) => c.status === 'Pending').length;
   const totalPending = pendingLeaves + pendingWFH + pendingCorrections;
 
-  const stats = useMemo(() => {
-    const active = employees.filter((e) => e.active).length;
-    const todayRecs = attendance.filter((a) => a.date === today);
-    const present = todayRecs.filter((a) => a.status === 'Present' || a.status === 'WFH').length;
-    const late = todayRecs.filter((a) => a.late).length;
-    const absent = Math.max(0, active - present);
-    return { active, present, absent, late };
-  }, [employees, attendance, today]);
+  const stats = liveStats;
 
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -176,7 +178,7 @@ const HRDashboardScreen: React.FC<any> = ({ navigation }) => {
           }}
         >
           {[
-            { label: 'Total', value: stats.active, color: '#fff' },
+          { label: 'Total', value: stats.total, color: '#fff' },
             { label: 'Present', value: stats.present, color: '#4ADE80' },
             { label: 'Absent', value: stats.absent, color: '#FCA5A5' },
             { label: 'Late', value: stats.late, color: '#FCD34D' },
@@ -208,7 +210,7 @@ const HRDashboardScreen: React.FC<any> = ({ navigation }) => {
         <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
           <Tile
             icon="people-outline" label="Employees"
-            sub={`${stats.active} active`} color={palette.primary}
+            sub={`${stats.total} total`} color={palette.primary}
             onPress={() => navigation.navigate('Employees')}
           />
           <Tile

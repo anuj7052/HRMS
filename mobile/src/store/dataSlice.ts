@@ -23,7 +23,6 @@ import {
   mockNotifications,
   mockPolicies,
   mockShifts,
-  mockUsers,
   mockWFHRequests,
 } from '@/mock/data';
 
@@ -45,7 +44,7 @@ interface DataState {
 }
 
 const initialState: DataState = {
-  employees: mockUsers,
+  employees: [],
   attendance: mockAttendance,
   wfhRequests: mockWFHRequests,
   leaves: mockLeaves,
