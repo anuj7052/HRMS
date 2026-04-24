@@ -1,10 +1,10 @@
 import axios from 'axios';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { IDevice } from '../models/Device';
-import { Device } from '../models/Device';
 import { prisma } from '../lib/prisma';
 import { io } from '../server';
+
+type IDevice = { id: string; _id?: string; ip: string; port: number; serialNumber: string; username: string; passwordHash: string; name: string; isActive: boolean };
 
 /**
  * eSSL iClock HTTP pull protocol
@@ -246,7 +246,7 @@ export async function syncDevice(
       try {
         await prisma.rawPunchLog.create({
           data: {
-            deviceId: String(device._id),
+            deviceId: device.id ?? String(device._id),
             employeeDeviceId: log.employeeDeviceId,
             timestamp: log.timestamp,
             punchType: log.punchType,
@@ -259,15 +259,14 @@ export async function syncDevice(
       }
     }
 
-    await processAttendanceLogs(String(device._id), fromDate);
+    await processAttendanceLogs(device.id ?? String(device._id), fromDate);
 
-    await Device.findByIdAndUpdate(device._id, {
-      status: 'Online',
-      lastSync: new Date(),
-      lastError: undefined,
+    await prisma.device.update({
+      where: { id: device.id ?? String(device._id) },
+      data: { status: 'Online', lastSync: new Date(), lastError: null },
     });
 
-    io.emit('attendance:update', { deviceId: device._id, synced: newLogs });
+    io.emit('attendance:update', { deviceId: device.id ?? device._id, synced: newLogs });
 
     const dateNote = fromDate ? ` since ${fromDate.toISOString().split('T')[0]}` : '';
     return { success: true, message: `Sync complete${dateNote}. ${newLogs} new punch records imported.`, logsImported: newLogs };
@@ -275,11 +274,9 @@ export async function syncDevice(
     const isUnreachable = isNetworkError(err);
     const message = err instanceof Error ? err.message : 'Unknown sync error';
 
-    await Device.findByIdAndUpdate(device._id, {
-      status: isUnreachable ? 'Offline' : 'Online',
-      // Only persist lastError for true network failures; HTTP 4xx = device reachable but no pull endpoint
-      ...(isUnreachable ? { lastError: message } : { lastError: undefined }),
-      ...(isUnreachable ? {} : { lastSync: new Date() }),
+    await prisma.device.update({
+      where: { id: device.id ?? String(device._id) },
+      data: { status: isUnreachable ? 'Offline' : 'Online', ...(isUnreachable ? { lastError: message } : { lastError: null }), ...(isUnreachable ? {} : { lastSync: new Date() }) },
     });
 
     return { success: false, message: `Sync failed: ${message}`, logsImported: 0 };
@@ -305,25 +302,24 @@ export async function testDeviceConnection(device: IDevice): Promise<{ online: b
       });
       const latency = Date.now() - start;
       const statusNote = res.status === 200 ? '' : ` (HTTP ${res.status} — check device URL path)`;
-      await Device.findByIdAndUpdate(device._id, { status: 'Online', lastError: undefined });
+      await prisma.device.update({ where: { id: device.id ?? String(device._id) }, data: { status: 'Online', lastError: null } });
       return { online: true, latency, message: `Device reachable in ${latency}ms${statusNote}` };
     } catch (err) {
-      if (isNetworkError(err)) break; // truly unreachable — stop trying
-      // HTTP error with response → device IS online, just wrong path
+      if (isNetworkError(err)) break;
       const latency = Date.now() - start;
-      await Device.findByIdAndUpdate(device._id, { status: 'Online', lastError: undefined });
+      await prisma.device.update({ where: { id: device.id ?? String(device._id) }, data: { status: 'Online', lastError: null } });
       return { online: true, latency, message: `Device reachable in ${latency}ms (HTTP error on probe — check device path)` };
     }
   }
 
   const latency = Date.now() - start;
-  await Device.findByIdAndUpdate(device._id, { status: 'Offline' });
+  await prisma.device.update({ where: { id: device.id ?? String(device._id) }, data: { status: 'Offline' } });
   return { online: false, latency, message: `Device unreachable at ${device.ip}:${device.port} — check IP/port and network connectivity` };
 }
 
 export async function syncAllActiveDevices(): Promise<void> {
   // Skip devices using ETL auto-sync — their cron is handled separately in cronService
-  const devices = await Device.find({ isActive: true, autoSync: { $ne: true } }).select('+passwordHash');
+  const devices = await prisma.device.findMany({ where: { isActive: true, autoSync: { not: true } } });
   if (devices.length === 0) {
     console.log('[eSSL] No iClock-pull devices to sync (all use ETL auto-sync)');
     return;

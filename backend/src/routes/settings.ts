@@ -1,104 +1,60 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import { AppSettings } from '../models/AppSettings';
-import { AttendanceLog } from '../models/AttendanceLog';
-import { Employee } from '../models/Employee';
-import { Shift } from '../models/Shift';
 import { authenticateJWT, requireRole, AuthRequest } from '../middleware/auth';
+import { prisma } from '../lib/prisma';
 
 const router = Router();
 router.use(authenticateJWT);
 
 // ─── GET /api/settings ───────────────────────────────────────────────────────
 router.get('/', async (_req, res: Response): Promise<void> => {
-  let settings = await AppSettings.findOne();
-  if (!settings) {
-    settings = await AppSettings.create({});
-  }
-  // Don't expose SMTP password
-  const obj = settings.toObject() as unknown as Record<string, unknown>;
-  delete obj.smtpPass;
-  res.json(obj);
+  let settings = await prisma.appSettings.findFirst();
+  if (!settings) settings = await prisma.appSettings.create({ data: {} });
+  const { smtpPass: _sp, ...safe } = settings as typeof settings & { smtpPass?: string }; void _sp;
+  res.json(safe);
 });
 
 // ─── PUT /api/settings ───────────────────────────────────────────────────────
-router.put(
-  '/',
-  requireRole(['Admin']),
-  async (req: AuthRequest, res: Response): Promise<void> => {
-    let settings = await AppSettings.findOne();
-    if (!settings) settings = new AppSettings();
-
-    const allowed = [
-      'allowedEmailDomains', 'shiftStart', 'shiftEnd', 'lateThresholdMinutes',
-      'halfDayThresholdHours', 'workingDays', 'holidays', 'smtpHost',
-      'smtpPort', 'smtpUser', 'smtpPass', 'smtpFrom', 'emailNotificationsEnabled',
-    ];
-
-    for (const key of allowed) {
-      if ((req.body as Record<string, unknown>)[key] !== undefined) {
-        (settings as unknown as Record<string, unknown>)[key] = (req.body as Record<string, unknown>)[key];
-      }
-    }
-
-    await settings.save();
-    res.json({ message: 'Settings updated' });
-  }
-);
+router.put('/', requireRole(['Admin']), async (req: AuthRequest, res: Response): Promise<void> => {
+  const settings = await prisma.appSettings.findFirst();
+  const allowed = ['allowedEmailDomains','shiftStart','shiftEnd','lateThresholdMinutes','halfDayThresholdHours','workingDays','holidays','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailNotificationsEnabled'];
+  const data: Record<string, unknown> = {};
+  for (const key of allowed) { if ((req.body as Record<string,unknown>)[key] !== undefined) data[key] = (req.body as Record<string,unknown>)[key]; }
+  if (settings) await prisma.appSettings.update({ where: { id: settings.id }, data: data as any });
+  else await prisma.appSettings.create({ data: data as any });
+  res.json({ message: 'Settings updated' });
+});
 
 // ─── POST /api/settings/apply-holidays ───────────────────────────────────────
-// Creates/updates attendance records for all employees on every configured holiday date.
-// Skips dates that already have actual punch data (Present/Late/HalfDay).
 router.post('/apply-holidays', requireRole(['Admin']), async (_req: AuthRequest, res: Response): Promise<void> => {
-  const settings = await AppSettings.findOne();
-  if (!settings || !settings.holidays || settings.holidays.length === 0) {
-    res.status(400).json({ message: 'No holidays configured in settings' }); return;
-  }
+  const settings = await prisma.appSettings.findFirst();
+  const holidays = settings?.holidays as Array<{ date: string }> | null;
+  if (!holidays || holidays.length === 0) { res.status(400).json({ message: 'No holidays configured in settings' }); return; }
 
-  const employees = await Employee.find({}).select('_id').lean();
-  let applied = 0;
-  let skipped = 0;
+  const employees = await prisma.employee.findMany({ select: { id: true } });
+  let applied = 0; let skipped = 0;
 
-  for (const holiday of settings.holidays) {
-    const d = new Date(holiday.date);
-    d.setHours(0, 0, 0, 0);
-
+  for (const holiday of holidays) {
+    const d = new Date(holiday.date); d.setUTCHours(0, 0, 0, 0);
     for (const emp of employees) {
-      const existing = await AttendanceLog.findOne({ employeeId: emp._id, date: d });
+      const existing = await prisma.attendanceLog.findUnique({ where: { employeeId_date: { employeeId: emp.id, date: d } } });
       if (existing) {
         if (['Absent', 'Holiday', 'WeeklyOff'].includes(existing.status)) {
-          await AttendanceLog.updateOne(
-            { _id: existing._id },
-            { $set: { status: 'Holiday', source: 'holiday-import', punchIn: undefined, punchOut: undefined, workHours: 0 } }
-          );
+          await prisma.attendanceLog.update({ where: { id: existing.id }, data: { status: 'Holiday', source: 'holiday-import', punchIn: null, punchOut: null, workHours: 0 } });
           applied++;
-        } else {
-          skipped++; // has punch data — don't overwrite
-        }
+        } else { skipped++; }
       } else {
-        await AttendanceLog.create({
-          employeeId: emp._id,
-          date: d,
-          status: 'Holiday',
-          workHours: 0,
-          source: 'holiday-import',
-          isRegularized: false,
-        });
+        await prisma.attendanceLog.create({ data: { employeeId: emp.id, date: d, status: 'Holiday', workHours: 0, source: 'holiday-import' } });
         applied++;
       }
     }
   }
-
-  res.json({
-    message: `Applied ${settings.holidays.length} holidays to ${employees.length} employees. ${applied} records created/updated, ${skipped} skipped (had punch data).`,
-    applied,
-    skipped,
-  });
+  res.json({ message: `Applied ${holidays.length} holidays to ${employees.length} employees. ${applied} records created/updated, ${skipped} skipped.`, applied, skipped });
 });
 
 // ─── GET /api/settings/shifts ─────────────────────────────────────────────────
 router.get('/shifts', async (_req, res: Response): Promise<void> => {
-  const shifts = await Shift.find().sort({ name: 1 }).lean();
+  const shifts = await prisma.shift.findMany({ orderBy: { name: 'asc' } });
   res.json(shifts);
 });
 
@@ -125,20 +81,14 @@ router.post(
       gracePeriodMinutes?: number; halfDayThresholdHours?: number;
     };
 
-    const existing = await Shift.findOne({ name: { $regex: new RegExp(`^${name}$`, 'i') } });
+    const existing = await prisma.shift.findUnique({ where: { name } });
     if (existing) {
       res.status(409).json({ message: 'A shift with this name already exists' });
       return;
     }
-
-    const shift = await Shift.create({
-      name,
-      startTime,
-      endTime,
-      gracePeriodMinutes: gracePeriodMinutes ?? 15,
-      halfDayThresholdHours: halfDayThresholdHours ?? 4,
+    const shift = await prisma.shift.create({
+      data: { name, startTime, endTime, gracePeriodMinutes: gracePeriodMinutes ?? 15, halfDayThresholdHours: halfDayThresholdHours ?? 4 },
     });
-
     res.status(201).json(shift);
   }
 );
@@ -160,7 +110,7 @@ router.put(
       return;
     }
 
-    const shift = await Shift.findById(req.params.id);
+    const shift = await prisma.shift.findUnique({ where: { id: req.params.id } });
     if (!shift) {
       res.status(404).json({ message: 'Shift not found' });
       return;
@@ -171,34 +121,23 @@ router.put(
       gracePeriodMinutes?: number; halfDayThresholdHours?: number; isActive?: boolean;
     };
 
-    Object.assign(shift, {
-      ...(name && { name }),
-      ...(startTime && { startTime }),
-      ...(endTime && { endTime }),
-      ...(gracePeriodMinutes !== undefined && { gracePeriodMinutes }),
-      ...(halfDayThresholdHours !== undefined && { halfDayThresholdHours }),
-      ...(isActive !== undefined && { isActive }),
+    const updated = await prisma.shift.update({
+      where: { id: req.params.id },
+      data: { ...(name && { name }), ...(startTime && { startTime }), ...(endTime && { endTime }), ...(gracePeriodMinutes !== undefined && { gracePeriodMinutes }), ...(halfDayThresholdHours !== undefined && { halfDayThresholdHours }), ...(isActive !== undefined && { isActive }) },
     });
-
-    await shift.save();
-    res.json(shift);
+    res.json(updated);
   }
 );
 
 // ─── DELETE /api/settings/shifts/:id ──────────────────────────────────────────
 router.delete('/shifts/:id', requireRole(['Admin']), async (req: AuthRequest, res: Response): Promise<void> => {
-  const shift = await Shift.findById(req.params.id);
-  if (!shift) {
-    res.status(404).json({ message: 'Shift not found' });
-    return;
-  }
-  // Check if any employees are using this shift
-  const count = await Employee.countDocuments({ shiftId: req.params.id });
+  const shift = await prisma.shift.findUnique({ where: { id: req.params.id } });
+  if (!shift) { res.status(404).json({ message: 'Shift not found' }); return; }
+  const count = await prisma.employee.count({ where: { shiftId: req.params.id } });
   if (count > 0) {
-    res.status(409).json({ message: `Cannot delete — ${count} employee(s) are assigned to this shift. Reassign them first.` });
-    return;
+    res.status(409).json({ message: `Cannot delete — ${count} employee(s) are assigned to this shift. Reassign them first.` }); return;
   }
-  await shift.deleteOne();
+  await prisma.shift.delete({ where: { id: req.params.id } });
   res.json({ message: 'Shift deleted' });
 });
 

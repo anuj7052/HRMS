@@ -10,7 +10,6 @@
  * Protocol reference: ADMS / iClock HTTP push protocol (ZKTeco/eSSL)
  */
 import { Router, Request, Response } from 'express';
-import { Device } from '../models/Device';
 import { processAttendanceFromRaw } from '../services/esslService';
 import { prisma } from '../lib/prisma';
 import { io } from '../server';
@@ -34,11 +33,10 @@ router.get('/cdata', async (req: Request, res: Response): Promise<void> => {
   }
 
   // Mark device as Online
-  await Device.findOneAndUpdate(
-    { serialNumber: sn },
-    { status: 'Online', lastError: undefined },
-    { new: false }
-  );
+  await prisma.device.updateMany({
+    where: { serialNumber: sn },
+    data: { status: 'Online', lastError: null },
+  });
 
   // Respond with iClock server config — device uses these settings
   const now = Math.floor(Date.now() / 1000);
@@ -86,19 +84,18 @@ router.post('/cdata', async (req: Request, res: Response): Promise<void> => {
   }
 
   // Find device in DB
-  const device = await Device.findOne({ serialNumber: sn });
+  const device = await prisma.device.findFirst({ where: { serialNumber: sn } });
 
   if (table.toUpperCase() === 'ATTLOG' && rawBody.trim()) {
-    await handleAttLogPush(sn, rawBody, device?._id?.toString());
+    await handleAttLogPush(sn, rawBody, device?.id);
   } else if (table.toUpperCase() === 'OPERLOG') {
     console.log(`[iClock] OPERLOG from ${sn} (${rawBody.length} bytes) — stored for audit`);
   }
 
   if (device) {
-    await Device.findByIdAndUpdate(device._id, {
-      status: 'Online',
-      lastSync: new Date(),
-      lastError: undefined,
+    await prisma.device.update({
+      where: { id: device.id },
+      data: { status: 'Online', lastSync: new Date(), lastError: null },
     });
   }
 

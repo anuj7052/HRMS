@@ -1,8 +1,7 @@
 import cron from 'node-cron';
 import { syncAllActiveDevices, processAttendanceFromRaw } from './esslService';
 import { fetchFromIClockServerDirect, decryptFromStorage } from './etlService';
-import { Device } from '../models/Device';
-import { RawPunchLog } from '../models/AttendanceLog';
+import { prisma } from '../lib/prisma';
 
 export function startCronJobs(): void {
   // Every 15 minutes: sync all active eSSL devices (iClock pull)
@@ -14,9 +13,7 @@ export function startCronJobs(): void {
   // Every minute: check which devices need an auto-sync from the eTimeTrackLite server
   cron.schedule('* * * * *', async () => {
     try {
-      const devices = await Device.find({ autoSync: true, isActive: true }).select(
-        '+etlUsername +etlPassword'
-      );
+      const devices = await prisma.device.findMany({ where: { autoSync: true, isActive: true } });
       const now = Date.now();
 
       for (const device of devices) {
@@ -45,35 +42,28 @@ export function startCronJobs(): void {
             let newLogs = 0;
             for (const rec of result.records) {
               try {
-                await RawPunchLog.create({
-                  deviceId: device._id,
-                  employeeDeviceId: rec.employeeDeviceId,
-                  timestamp: rec.timestamp,
-                  punchType: rec.punchType,
-                  raw: rec.raw,
+                await prisma.rawPunchLog.create({
+                  data: { deviceId: device.id, employeeDeviceId: rec.employeeDeviceId, timestamp: rec.timestamp, punchType: rec.punchType, raw: rec.raw },
                 });
                 newLogs++;
               } catch { /* duplicate */ }
             }
 
             if (newLogs > 0) {
-              await processAttendanceFromRaw(String(device._id));
+              await processAttendanceFromRaw(device.id);
             }
 
             // Only advance lastEtlSync when we actually succeeded (got records OR login+no-data)
             // Don't advance on authentication failures to avoid skipping historical data
             if (result.success) {
-              await Device.findByIdAndUpdate(device._id, {
-                lastEtlSync: new Date(),
-                status: 'Online',
-                lastSync: new Date(),
-                lastError: undefined,
+              await prisma.device.update({
+                where: { id: device.id },
+                data: { lastEtlSync: new Date(), status: 'Online', lastSync: new Date(), lastError: null },
               });
             } else {
-              // Failed — mark error so UI shows it, but DON'T advance lastEtlSync
-              await Device.findByIdAndUpdate(device._id, {
-                status: 'Online', // server is reachable
-                lastError: result.message,
+              await prisma.device.update({
+                where: { id: device.id },
+                data: { status: 'Online', lastError: result.message },
               });
             }
 
@@ -84,9 +74,9 @@ export function startCronJobs(): void {
             }
           } catch (e) {
             console.error(`[AutoSync] ${device.name} failed:`, (e as Error).message);
-            await Device.findByIdAndUpdate(device._id, {
-              status: 'Offline',
-              lastError: (e as Error).message,
+            await prisma.device.update({
+              where: { id: device.id },
+              data: { status: 'Offline', lastError: (e as Error).message },
             });
           }
         })();

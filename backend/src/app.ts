@@ -3,7 +3,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
-import { connectDB } from './config/database';
 import authRoutes from './routes/auth';
 import employeeRoutes from './routes/employees';
 import deviceRoutes from './routes/devices';
@@ -18,9 +17,6 @@ const app = express();
 
 // Trust Azure App Service / reverse proxy (fixes express-rate-limit X-Forwarded-For warning)
 app.set('trust proxy', 1);
-
-// Connect to MongoDB (non-fatal if unavailable — Prisma/PG is primary)
-connectDB().catch((err) => console.warn('[MongoDB] Connection skipped:', err.message));
 
 // Security middleware
 app.use(helmet());

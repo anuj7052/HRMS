@@ -3,7 +3,6 @@ import { query, body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { authenticateJWT, requireRole, AuthRequest } from '../middleware/auth';
-import { Device } from '../models/Device';
 import { fetchFromIClockServerDirect, decryptFromStorage } from '../services/etlService';
 import { processAttendanceFromRaw } from '../services/esslService';
 import { prisma } from '../lib/prisma';
@@ -14,7 +13,7 @@ router.use(authenticateJWT);
 // ─── POST /api/attendance/sync-live ─────────────────────────────────────────
 // Admin/HR trigger: pulls live attendance from the eTimeTrackLite server for all autoSync devices
 router.post('/sync-live', requireRole(['Admin', 'HR']), async (_req: AuthRequest, res: Response): Promise<void> => {
-  const devices = await Device.find({ isActive: true }).select('+etlUsername +etlPassword');
+  const devices = await prisma.device.findMany({ where: { isActive: true } });
   if (devices.length === 0) {
     res.status(404).json({ message: 'No active devices found' }); return;
   }
@@ -47,7 +46,7 @@ router.post('/sync-live', requireRole(['Admin', 'HR']), async (_req: AuthRequest
         try {
           await prisma.rawPunchLog.create({
             data: {
-              deviceId: String(device._id),
+              deviceId: device.id,
               employeeDeviceId: record.employeeDeviceId,
               timestamp: record.timestamp,
               punchType: record.punchType,
@@ -58,8 +57,8 @@ router.post('/sync-live', requireRole(['Admin', 'HR']), async (_req: AuthRequest
         } catch { /* duplicate */ }
       }
       if (newLogs > 0) {
-        await processAttendanceFromRaw(String(device._id));
-        await Device.findByIdAndUpdate(device._id, { lastEtlSync: new Date(), status: 'Online', lastSync: new Date(), lastError: undefined });
+        await processAttendanceFromRaw(device.id);
+        await prisma.device.update({ where: { id: device.id }, data: { lastEtlSync: new Date(), status: 'Online', lastSync: new Date(), lastError: null } });
       }
       totalNew += newLogs;
       results.push({ device: device.name, logsImported: newLogs, message: result.message });
