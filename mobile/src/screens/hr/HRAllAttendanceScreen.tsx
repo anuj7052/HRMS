@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -38,6 +38,8 @@ const HRAllAttendanceScreen: React.FC = () => {
 
   const [feed, setFeed] = useState<AttendanceByDateEntry[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummaryEntry[]>([]);
   const [dailyBreakdown, setDailyBreakdown] = useState<AttendanceDailyBreakdown[]>([]);
@@ -61,34 +63,41 @@ const HRAllAttendanceScreen: React.FC = () => {
   }, [mode, anchor]);
 
   // ── Fetch Day/Week ──────────────────────────────────────────────────────────
-  const fetchFeed = useCallback(async () => {
-    setFeedLoading(true);
+  const fetchFeed = useCallback(async (silent = false) => {
+    if (!silent) setFeedLoading(true);
     try {
       const res = await getAttendanceByDate(
         mode === 'Day' ? { date: range.from } : { from: range.from, to: range.to }
       );
       setFeed(res.feed);
-    } catch { /* ignore */ } finally { setFeedLoading(false); }
+      setLastUpdated(new Date());
+    } catch { /* ignore */ } finally { if (!silent) setFeedLoading(false); }
   }, [mode, range.from, range.to]);
 
-  // ── Fetch Month ─────────────────────────────────────────────────────────────
+  // ── Fetch Monthly summary ───────────────────────────────────────────────────
   const fetchMonthly = useCallback(async () => {
     setMonthlyLoading(true);
     try {
-      const res = await getMonthlyReport(
-        anchor.getMonth() + 1,
-        anchor.getFullYear(),
-        dept !== 'All' ? dept : undefined,
-      );
-      setMonthlySummary(res.summary);
-      setDailyBreakdown(res.dailyBreakdown ?? []);
+      const res = await getMonthlyReport(anchor.getMonth() + 1, anchor.getFullYear());
+      setMonthlySummary(res.summary ?? res);
     } catch { /* ignore */ } finally { setMonthlyLoading(false); }
-  }, [anchor, dept]);
+  }, [anchor]);
 
+  // ── 5-second live refresh — Day mode only ───────────────────────────────────
   useEffect(() => {
-    if (mode !== 'Month') fetchFeed();
-    else fetchMonthly();
+    if (mode !== 'Month') {
+      fetchFeed(false);
+      if (mode === 'Day') {
+        liveIntervalRef.current = setInterval(() => fetchFeed(true), 5000);
+      }
+    } else {
+      fetchMonthly();
+    }
+    return () => {
+      if (liveIntervalRef.current) { clearInterval(liveIntervalRef.current); liveIntervalRef.current = null; }
+    };
   }, [mode, fetchFeed, fetchMonthly]);
+
 
   // ── Departments list ────────────────────────────────────────────────────────
   const departments = useMemo(() => {
@@ -200,9 +209,21 @@ const HRAllAttendanceScreen: React.FC = () => {
         <Pressable onPress={() => shiftAnchor(-1)} style={{ padding: 10 }}>
           <Ionicons name="chevron-back" size={22} color={t.colors.primary} />
         </Pressable>
-        <Pressable onPress={() => { if (mode !== 'Month') fetchFeed(); else fetchMonthly(); }} style={{ alignItems: 'center' }}>
+        <Pressable onPress={() => { if (mode !== 'Month') fetchFeed(false); else fetchMonthly(); }} style={{ alignItems: 'center' }}>
           <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 14 }}>{range.label}</Text>
-          <Text style={{ color: t.colors.primary, fontSize: 11 }}>tap to refresh</Text>
+          {mode === 'Day' ? (
+            <Row style={{ gap: 5, alignItems: 'center', marginTop: 2 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E' }} />
+              <Text style={{ color: '#22C55E', fontSize: 11, fontWeight: '700' }}>LIVE · auto-refresh 5s</Text>
+            </Row>
+          ) : (
+            <Text style={{ color: t.colors.primary, fontSize: 11 }}>tap to refresh</Text>
+          )}
+          {mode === 'Day' && lastUpdated && (
+            <Text style={{ color: t.colors.textMuted, fontSize: 10, marginTop: 1 }}>
+              Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </Text>
+          )}
         </Pressable>
         <Pressable onPress={() => shiftAnchor(1)} style={{ padding: 10 }}>
           <Ionicons name="chevron-forward" size={22} color={t.colors.primary} />
@@ -382,6 +403,28 @@ const HRAllAttendanceScreen: React.FC = () => {
                             Total: {item.workHours.toFixed(1)}h
                           </Text>
                         )}
+
+                        {/* View full punch log button */}
+                        <Pressable
+                          onPress={(e) => {
+                            e.stopPropagation?.();
+                            nav.navigate('PersonDayLog', {
+                              employeeDbId: item.employeeDbId,
+                              name: item.name,
+                              date: range.from,
+                            });
+                          }}
+                          style={{
+                            marginTop: 10, flexDirection: 'row', alignItems: 'center',
+                            justifyContent: 'center', gap: 6,
+                            paddingVertical: 8, borderRadius: 8,
+                            backgroundColor: t.colors.surfaceAlt,
+                            borderWidth: 1, borderColor: t.colors.border,
+                          }}
+                        >
+                          <Ionicons name="list-outline" size={14} color={t.colors.textMuted} />
+                          <Text style={{ color: t.colors.textMuted, fontSize: 12, fontWeight: '700' }}>View All Punches</Text>
+                        </Pressable>
                       </Card>
                     </Pressable>
                   );

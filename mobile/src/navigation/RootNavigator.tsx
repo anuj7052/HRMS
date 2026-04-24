@@ -42,6 +42,7 @@ import DeviceSyncScreen from '@/screens/hr/DeviceSyncScreen';
 import EsslConnectionScreen from '@/screens/hr/EsslConnectionScreen';
 import HRAllAttendanceScreen from '@/screens/hr/HRAllAttendanceScreen';
 import EmployeeAttendanceProfileScreen from '@/screens/hr/EmployeeAttendanceProfileScreen';
+import HRPersonDayLogScreen from '@/screens/hr/HRPersonDayLogScreen';
 import SettingsScreen from '@/screens/shared/SettingsScreen';
 import HelpSupportScreen from '@/screens/shared/HelpSupportScreen';
 import ChangePasswordScreen from '@/screens/shared/ChangePasswordScreen';
@@ -206,6 +207,7 @@ const HRAttendanceStack = () => (
   <HRStack.Navigator>
     <HRStack.Screen name="AllAttendanceList" component={HRAllAttendanceScreen} options={{ title: 'All Employee Attendance' }} />
     <HRStack.Screen name="EmployeeAttendanceProfile" component={EmployeeAttendanceProfileScreen} options={{ title: 'Profile' }} />
+    <HRStack.Screen name="PersonDayLog" component={HRPersonDayLogScreen} options={{ title: 'Punch Log' }} />
   </HRStack.Navigator>
 );
 
