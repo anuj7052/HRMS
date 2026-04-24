@@ -102,13 +102,24 @@ router.get('/monthly-summary', requireRole(['Admin', 'HR']), async (req: AuthReq
   const summary = employees.map((emp) => {
     const eLogs = logsByEmployee.get(emp.id) || [];
     const counts = { Present: 0, Late: 0, Absent: 0, Leave: 0, WeeklyOff: 0, Holiday: 0, HalfDay: 0 };
-    eLogs.forEach((l) => { if (l.status in counts) counts[l.status as keyof typeof counts]++; });
+    let totalMinutes = 0;
+    eLogs.forEach((l) => {
+      if (l.status in counts) counts[l.status as keyof typeof counts]++;
+    });
     return {
       _id: emp.id,
       employeeId: emp.employeeId,
       name: emp.user?.name || 'Unknown',
       department: emp.department,
-      ...counts,
+      // lowercase aliases for mobile app compatibility
+      present: counts.Present,
+      late: counts.Late,
+      absent: counts.Absent,
+      leave: counts.Leave,
+      weeklyOff: counts.WeeklyOff,
+      holiday: counts.Holiday,
+      halfDay: counts.HalfDay,
+      totalWorkHours: '—',
       total: eLogs.length,
     };
   });
@@ -751,58 +762,49 @@ router.post(
   }
 );
 
-// ─── GET /api/attendance/by-date ────────────────────────────────────────────
-// HR: all active employees' attendance for a specific date (or date range)
-// Query: ?date=YYYY-MM-DD  OR  ?from=YYYY-MM-DD&to=YYYY-MM-DD
-router.get('/by-date', requireRole(['Admin', 'HR']), async (req: AuthRequest, res: Response): Promise<void> => {
-  const dateParam = req.query.date as string | undefined;
-  const fromParam = req.query.from as string | undefined;
-  const toParam   = req.query.to   as string | undefined;
+// ─── GET /api/attendance/by-date ─────────────────────────────────────────────
+// ?date=YYYY-MM-DD  → single day
+// ?from=YYYY-MM-DD&to=YYYY-MM-DD  → date range
+// Returns same shape as live-feed for all active employees
+router.get('/by-date', requireRole(['Admin', 'HR', 'Manager']), async (req: AuthRequest, res: Response): Promise<void> => {
+  const { date, from, to } = req.query as { date?: string; from?: string; to?: string };
 
-  let from: Date;
-  let to:   Date;
+  let start: Date;
+  let end: Date;
 
-  if (dateParam) {
-    from = new Date(`${dateParam}T00:00:00.000Z`);
-    to   = new Date(from); to.setUTCDate(to.getUTCDate() + 1);
-  } else if (fromParam && toParam) {
-    from = new Date(`${fromParam}T00:00:00.000Z`);
-    to   = new Date(`${toParam}T00:00:00.000Z`); to.setUTCDate(to.getUTCDate() + 1);
+  if (date) {
+    start = new Date(date); start.setUTCHours(0, 0, 0, 0);
+    end = new Date(start); end.setUTCDate(end.getUTCDate() + 1);
+  } else if (from && to) {
+    start = new Date(from); start.setUTCHours(0, 0, 0, 0);
+    end = new Date(to); end.setUTCHours(23, 59, 59, 999);
   } else {
     // default: today
-    from = new Date(); from.setUTCHours(0, 0, 0, 0);
-    to   = new Date(from); to.setUTCDate(to.getUTCDate() + 1);
+    start = new Date(); start.setUTCHours(0, 0, 0, 0);
+    end = new Date(start); end.setUTCDate(end.getUTCDate() + 1);
   }
 
   const logs = await prisma.attendanceLog.findMany({
-    where: { date: { gte: from, lt: to } },
-    include: {
-      employee: {
-        where: { isActive: true },
-        include: { user: { select: { name: true } } },
-      },
-    },
+    where: { date: { gte: start, lte: end }, employee: { isActive: true } },
+    include: { employee: { include: { user: { select: { name: true } } } } },
     orderBy: [{ date: 'asc' }, { punchIn: 'desc' }],
   });
 
-  // Filter out any logs that don't belong to active employees
-  const feed = logs
-    .filter((l) => l.employee != null)
-    .map((l) => ({
-      id: l.id,
-      empCode: l.employee.employeeId,
-      employeeDbId: l.employee.id,
-      name: l.employee.user?.name || `Employee ${l.employee.employeeId}`,
-      department: l.employee.department,
-      date: l.date.toISOString().split('T')[0],
-      punchIn:   l.punchIn?.toISOString()  ?? null,
-      punchOut:  l.punchOut?.toISOString() ?? null,
-      workHours: l.workHours,
-      status:    l.status,
-      source:    l.source,
-    }));
+  const feed = logs.map((l) => ({
+    id: l.id,
+    date: l.date.toISOString().split('T')[0],
+    empCode: l.employee.employeeId,
+    employeeDbId: l.employee.id,
+    name: l.employee.user?.name || `Employee ${l.employee.employeeId}`,
+    department: l.employee.department,
+    punchIn: l.punchIn?.toISOString() ?? null,
+    punchOut: l.punchOut?.toISOString() ?? null,
+    workHours: l.workHours,
+    status: l.status,
+    source: l.source,
+  }));
 
-  res.json({ feed, from: from.toISOString().split('T')[0], to: to.toISOString().split('T')[0], total: feed.length });
+  res.json({ feed, from: start.toISOString().split('T')[0], to: end.toISOString().split('T')[0], total: feed.length });
 });
 
 // ─── GET /api/attendance/live-feed ───────────────────────────────────────────
@@ -823,21 +825,17 @@ router.get('/live-feed', requireRole(['Admin', 'HR']), async (_req: AuthRequest,
     orderBy: { punchIn: 'desc' },
   });
 
-  // Filter out logs for inactive employees
-  const feed = logs
-    .filter((l) => l.employee.isActive)
-    .map((l) => ({
-      id: l.id,
-      empCode: l.employee.employeeId,
-      employeeDbId: l.employee.id,
-      name: l.employee.user?.name || `Employee ${l.employee.employeeId}`,
-      department: l.employee.department,
-      punchIn: l.punchIn?.toISOString() ?? null,
-      punchOut: l.punchOut?.toISOString() ?? null,
-      workHours: l.workHours,
-      status: l.status,
-      source: l.source,
-    }));
+  const feed = logs.map((l) => ({
+    id: l.id,
+    empCode: l.employee.employeeId,
+    name: l.employee.user?.name || `Employee ${l.employee.employeeId}`,
+    department: l.employee.department,
+    punchIn: l.punchIn?.toISOString() ?? null,
+    punchOut: l.punchOut?.toISOString() ?? null,
+    workHours: l.workHours,
+    status: l.status,
+    source: l.source,
+  }));
 
   res.json({ feed, date: today.toISOString().split('T')[0], total: feed.length });
 });
