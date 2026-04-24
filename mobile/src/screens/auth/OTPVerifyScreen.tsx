@@ -4,7 +4,6 @@ import { Button } from '@/components/UI';
 import { useTheme } from '@/theme';
 import { useAppDispatch } from '@/store';
 import { loginSuccess } from '@/store/authSlice';
-import { mockUsers } from '@/mock/data';
 
 const OTPVerifyScreen: React.FC<any> = ({ route, navigation }) => {
   const t = useTheme();
@@ -32,12 +31,8 @@ const OTPVerifyScreen: React.FC<any> = ({ route, navigation }) => {
 
   const verify = () => {
     if (otp.join('').length !== 6) return;
-    setLoading(true);
-    setTimeout(() => {
-      const user = mockUsers.find((u) => u.role === role);
-      if (user) dispatch(loginSuccess({ user, token: 'mock-jwt-' + Date.now() }));
-      setLoading(false);
-    }, 700);
+    // OTP screen is legacy mock flow — real auth uses LoginScreen directly
+    setLoading(false);
   };
 
   return (

@@ -1,6 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { User } from '@/types';
-import { mockUsers } from '@/mock/data';
 
 interface AuthState {
   user: User | null;
@@ -39,12 +38,11 @@ const authSlice = createSlice({
       state.user = null;
       state.token = null;
     },
-    switchRole(state, action: PayloadAction<'employee' | 'manager' | 'hr'>) {
-      const u = mockUsers.find((x) => x.role === action.payload);
-      if (u) state.user = u;
+    setEmployeeDbId(state, action: PayloadAction<string | null>) {
+      state.employeeDbId = action.payload;
     },
   },
 });
 
-export const { loginStart, loginSuccess, loginFailure, logout, switchRole } = authSlice.actions;
+export const { loginStart, loginSuccess, loginFailure, logout, setEmployeeDbId } = authSlice.actions;
 export default authSlice.reducer;
