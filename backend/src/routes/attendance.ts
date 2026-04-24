@@ -102,24 +102,13 @@ router.get('/monthly-summary', requireRole(['Admin', 'HR']), async (req: AuthReq
   const summary = employees.map((emp) => {
     const eLogs = logsByEmployee.get(emp.id) || [];
     const counts = { Present: 0, Late: 0, Absent: 0, Leave: 0, WeeklyOff: 0, Holiday: 0, HalfDay: 0 };
-    let totalMinutes = 0;
-    eLogs.forEach((l) => {
-      if (l.status in counts) counts[l.status as keyof typeof counts]++;
-    });
+    eLogs.forEach((l) => { if (l.status in counts) counts[l.status as keyof typeof counts]++; });
     return {
       _id: emp.id,
       employeeId: emp.employeeId,
       name: emp.user?.name || 'Unknown',
       department: emp.department,
-      // lowercase aliases for mobile app compatibility
-      present: counts.Present,
-      late: counts.Late,
-      absent: counts.Absent,
-      leave: counts.Leave,
-      weeklyOff: counts.WeeklyOff,
-      holiday: counts.Holiday,
-      halfDay: counts.HalfDay,
-      totalWorkHours: '—',
+      ...counts,
       total: eLogs.length,
     };
   });
@@ -761,51 +750,6 @@ router.post(
     res.json({ success: true, saved, skipped, total: punches.length });
   }
 );
-
-// ─── GET /api/attendance/by-date ─────────────────────────────────────────────
-// ?date=YYYY-MM-DD  → single day
-// ?from=YYYY-MM-DD&to=YYYY-MM-DD  → date range
-// Returns same shape as live-feed for all active employees
-router.get('/by-date', requireRole(['Admin', 'HR', 'Manager']), async (req: AuthRequest, res: Response): Promise<void> => {
-  const { date, from, to } = req.query as { date?: string; from?: string; to?: string };
-
-  let start: Date;
-  let end: Date;
-
-  if (date) {
-    start = new Date(date); start.setUTCHours(0, 0, 0, 0);
-    end = new Date(start); end.setUTCDate(end.getUTCDate() + 1);
-  } else if (from && to) {
-    start = new Date(from); start.setUTCHours(0, 0, 0, 0);
-    end = new Date(to); end.setUTCHours(23, 59, 59, 999);
-  } else {
-    // default: today
-    start = new Date(); start.setUTCHours(0, 0, 0, 0);
-    end = new Date(start); end.setUTCDate(end.getUTCDate() + 1);
-  }
-
-  const logs = await prisma.attendanceLog.findMany({
-    where: { date: { gte: start, lte: end }, employee: { isActive: true } },
-    include: { employee: { include: { user: { select: { name: true } } } } },
-    orderBy: [{ date: 'asc' }, { punchIn: 'desc' }],
-  });
-
-  const feed = logs.map((l) => ({
-    id: l.id,
-    date: l.date.toISOString().split('T')[0],
-    empCode: l.employee.employeeId,
-    employeeDbId: l.employee.id,
-    name: l.employee.user?.name || `Employee ${l.employee.employeeId}`,
-    department: l.employee.department,
-    punchIn: l.punchIn?.toISOString() ?? null,
-    punchOut: l.punchOut?.toISOString() ?? null,
-    workHours: l.workHours,
-    status: l.status,
-    source: l.source,
-  }));
-
-  res.json({ feed, from: start.toISOString().split('T')[0], to: end.toISOString().split('T')[0], total: feed.length });
-});
 
 // ─── GET /api/attendance/live-feed ───────────────────────────────────────────
 // Returns today's attendance with employee names for the live attendance board
