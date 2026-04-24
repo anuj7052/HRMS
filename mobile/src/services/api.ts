@@ -103,6 +103,11 @@ export const api = {
   delete: <T>(path: string)              => request<T>('DELETE',  path),
 };
 
+/** Manually set a token in AsyncStorage (used right after login before Redux hydrates) */
+export async function setAuthToken(token: string) {
+  await AsyncStorage.setItem('accessToken', token);
+}
+
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 export async function loginWithCredentials(email: string, password: string) {
   const data = await api.post<{
@@ -212,3 +217,103 @@ export async function getMyWFHRequests(status?: string): Promise<WFHRequestAPI[]
 export async function submitWFHRequest(body: { date: string; mode: string; reason: string }) {
   return api.post('/attendance/wfh-request', body);
 }
+
+// ── Employees (HR/Admin) ──────────────────────────────────────────────────────
+export interface EmployeeAPI {
+  id: string;
+  employeeId: string;
+  department: string;
+  designation: string;
+  joinDate: string;
+  isActive: boolean;
+  phone?: string;
+  devicePin?: string;
+  user: { id: string; name: string; email: string; role: string; department: string };
+}
+
+export async function getEmployees(params?: { page?: number; limit?: number; search?: string; department?: string; status?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.page)       qs.set('page',       String(params.page));
+  if (params?.limit)      qs.set('limit',      String(params.limit));
+  if (params?.search)     qs.set('search',     params.search);
+  if (params?.department) qs.set('department', params.department);
+  if (params?.status)     qs.set('status',     params.status ?? 'active');
+  return api.get<{ data: EmployeeAPI[]; total: number; pages: number }>(`/employees?${qs}`);
+}
+
+export async function getEmployeeProfile() {
+  return api.get<EmployeeAPI>('/employees/profile');
+}
+
+// ── Attendance — HR full list ─────────────────────────────────────────────────
+export interface AttendanceLogAPI {
+  id: string;
+  employeeId: string;
+  date: string;
+  punchIn: string | null;
+  punchOut: string | null;
+  workHours: number | null;
+  status: string;
+  source: string | null;
+  attendanceMode: string | null;
+  isRegularized: boolean;
+  employee?: { employeeId: string; department: string; user: { name: string } };
+}
+
+/** Employee's own attendance logs for a given month */
+export async function getAttendanceByEmployee(employeeId: string, month: number, year: number) {
+  return api.get<{ logs: AttendanceLogAPI[]; month: number; year: number }>(
+    `/attendance/employee/${employeeId}?month=${month}&year=${year}`
+  );
+}
+
+/** HR: all employees' attendance for a month */
+export async function getMonthlyReport(month: number, year: number, department?: string) {
+  const qs = new URLSearchParams({ month: String(month), year: String(year) });
+  if (department && department !== 'All') qs.set('department', department);
+  return api.get<{
+    summary: Array<{
+      employeeId: string; name: string; department: string;
+      present: number; late: number; absent: number; leave: number; totalWorkHours: string;
+    }>;
+    dailyBreakdown: Array<{ date: string; present: number; late: number; absent: number }>;
+    month: number; year: number;
+  }>(`/reports/monthly?${qs}`);
+}
+
+/** HR: today's live attendance feed */
+export async function getLiveFeedHR() {
+  return getLiveFeed();
+}
+
+// ── Leaves ────────────────────────────────────────────────────────────────────
+export interface LeaveTypeAPI { id: string; name: string; daysAllowed: number }
+export interface LeaveBalanceAPI { leaveTypeId: string; allocated: number; used: number; remaining: number; leaveType: { name: string } }
+export interface LeaveRequestAPI {
+  id: string; leaveTypeId: string; fromDate: string; toDate: string;
+  totalDays: number; reason: string; status: string; reviewComment?: string;
+  leaveType: { name: string };
+  employee?: { user: { name: string } };
+}
+
+export async function getLeaveTypes() {
+  return api.get<LeaveTypeAPI[]>('/leaves/types');
+}
+
+export async function getLeaveBalance(employeeId: string) {
+  return api.get<LeaveBalanceAPI[]>(`/leaves/balance/${employeeId}`);
+}
+
+export async function getLeaveRequests(status?: string) {
+  const qs = status ? `?status=${status}` : '';
+  return api.get<LeaveRequestAPI[]>(`/leaves${qs}`);
+}
+
+export async function applyLeaveNew(body: { leaveTypeId: string; fromDate: string; toDate: string; reason: string }) {
+  return api.post<{ message: string }>('/leaves', body);
+}
+
+export async function reviewLeave(id: string, status: 'Approved' | 'Rejected', comment?: string) {
+  return api.put<{ message: string }>(`/leaves/${id}/review`, { status, comment });
+}
+

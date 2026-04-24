@@ -1,42 +1,47 @@
-import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { Badge, Button, Card, EmptyState, Input, Row } from '@/components/UI';
 import { statusColor, useTheme } from '@/theme';
-import { useAppDispatch, useAppSelector } from '@/store';
-import { updateLeaveStatus, updateWFHStatus, updateCorrectionStatus } from '@/store/dataSlice';
+import { useAppSelector } from '@/store';
+import { getLeaveRequests, reviewLeave, type LeaveRequestAPI } from '@/services/api';
 
 const PendingApprovalsScreen: React.FC = () => {
   const t = useTheme();
-  const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user)!;
-  // HR, CEO (designation), Director all get full visibility
-  const isFullAdmin = user.role === 'hr';
-  const employees = useAppSelector((s) => s.data.employees);
-  const visibleEmpIds = isFullAdmin
-    ? employees.map((e) => e.id)
-    : employees.filter((e) => e.managerId === user.id).map((e) => e.id);
 
-  const wfh = useAppSelector((s) => s.data.wfhRequests.filter((w) => visibleEmpIds.includes(w.userId)));
-  const leaves = useAppSelector((s) => s.data.leaves.filter((l) => visibleEmpIds.includes(l.userId)));
-  const corrections = useAppSelector((s) => s.data.corrections.filter((c) => visibleEmpIds.includes(c.userId)));
-
-  const [tab, setTab] = useState<'wfh' | 'leave' | 'correction'>('leave');
+  const [tab, setTab] = useState<'leave' | 'wfh'>('leave');
+  const [leaves, setLeaves] = useState<LeaveRequestAPI[]>([]);
+  const [loading, setLoading] = useState(false);
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [processing, setProcessing] = useState<Record<string, boolean>>({});
 
-  const pendingWFH = wfh.filter((w) => w.status === 'Pending').length;
-  const pendingLeaves = leaves.filter((l) => l.status === 'Pending').length;
-  const pendingCorrections = corrections.filter((c) => c.status === 'Pending').length;
+  const fetchLeaves = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getLeaveRequests('Pending');
+      setLeaves(Array.isArray(res) ? res : []);
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, []);
 
-  const data = tab === 'wfh' ? wfh : tab === 'leave' ? leaves : corrections;
+  useEffect(() => { if (tab === 'leave') fetchLeaves(); }, [tab, fetchLeaves]);
 
-  const TabBtn: React.FC<{ id: 'wfh' | 'leave' | 'correction'; label: string; count: number }> = ({ id, label, count }) => (
+  const handleReview = async (id: string, status: 'Approved' | 'Rejected') => {
+    setProcessing((p) => ({ ...p, [id]: true }));
+    try {
+      await reviewLeave(id, status, comments[id]);
+      setLeaves((prev) => prev.filter((l) => l.id !== id));
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to update');
+    } finally {
+      setProcessing((p) => ({ ...p, [id]: false }));
+    }
+  };
+
+  const TabBtn: React.FC<{ id: 'leave' | 'wfh'; label: string; count: number }> = ({ id, label, count }) => (
     <Pressable
       onPress={() => setTab(id)}
       style={{
-        flex: 1,
-        paddingVertical: 10,
-        borderRadius: 8,
-        alignItems: 'center',
+        flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center',
         backgroundColor: tab === id ? t.colors.surface : 'transparent',
         position: 'relative',
       }}
@@ -58,92 +63,62 @@ const PendingApprovalsScreen: React.FC = () => {
 
   return (
     <View style={{ flex: 1, backgroundColor: t.colors.background, padding: 16 }}>
-      {/* Role label */}
-      <Row style={{ marginBottom: 10, gap: 6 }}>
-        <Text style={{ color: t.colors.textMuted, fontSize: 12 }}>
-          {isFullAdmin ? `Showing all employees (${user.designation || user.role})` : `Showing your team only`}
-        </Text>
-      </Row>
-
       {/* Tab bar */}
       <Row style={{ backgroundColor: t.colors.surfaceAlt, borderRadius: 10, padding: 4, marginBottom: 12 }}>
-        <TabBtn id="leave" label="Leaves" count={pendingLeaves} />
-        <TabBtn id="wfh" label="WFH" count={pendingWFH} />
-        <TabBtn id="correction" label="Correction" count={pendingCorrections} />
+        <TabBtn id="leave" label="Leaves" count={leaves.filter((l) => l.status === 'Pending').length} />
+        <TabBtn id="wfh" label="WFH" count={0} />
       </Row>
 
       <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 24 }}>
-        {data.length === 0 ? (
-          <EmptyState title="All clear" subtitle="No requests for this category." />
-        ) : (
-          data.map((item: any) => (
-            <Card key={item.id}>
-              <Row style={{ justifyContent: 'space-between' }}>
-                <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={{ color: t.colors.text, fontWeight: '700' }}>
-                    {item.userName || employees.find((e) => e.id === item.userId)?.name || item.userId}
-                  </Text>
-                  <Text style={{ color: t.colors.textMuted, marginTop: 4, fontSize: 13 }}>
-                    {tab === 'wfh'
-                      ? item.dates.join(', ')
-                      : tab === 'leave'
-                      ? `${item.from} → ${item.to} (${item.days}d · ${item.type})`
-                      : `${item.date} · ${item.reason}`}
-                  </Text>
-                  <Text style={{ color: t.colors.textMuted, marginTop: 4, fontSize: 12, fontStyle: 'italic' }}>
-                    {tab === 'correction' ? item.detail : item.reason}
-                  </Text>
-                </View>
-                <Badge label={item.status} color={statusColor(item.status, t)} />
-              </Row>
+        {loading ? (
+          <ActivityIndicator color={t.colors.primary} style={{ marginTop: 40 }} />
+        ) : tab === 'leave' ? (
+          leaves.length === 0 ? (
+            <EmptyState title="All clear" subtitle="No pending leave requests." />
+          ) : (
+            leaves.map((l) => (
+              <Card key={l.id}>
+                <Row style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: t.colors.text, fontWeight: '700' }}>
+                      {l.employee?.user?.name ?? 'Employee'} — {l.leaveType.name}
+                    </Text>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 4 }}>
+                      {l.fromDate.split('T')[0]} → {l.toDate.split('T')[0]} · {l.totalDays}d
+                    </Text>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>{l.reason}</Text>
+                  </View>
+                  <Badge label={l.status} color={statusColor(l.status as any, t)} />
+                </Row>
 
-              {item.status === 'Pending' && (
-                <View style={{ marginTop: 10 }}>
+                <View style={{ marginBottom: 10 }}>
                   <Input
-                    value={comments[item.id] ?? ''}
-                    onChangeText={(v) => setComments({ ...comments, [item.id]: v })}
+                    value={comments[l.id] ?? ''}
+                    onChangeText={(v) => setComments((prev) => ({ ...prev, [l.id]: v }))}
                     placeholder="Comment (optional)"
                   />
-                  <Row style={{ gap: 10 }}>
-                    <Button
-                      title="Approve"
-                      onPress={() => {
-                        if (tab === 'wfh') {
-                          dispatch(updateWFHStatus({ id: item.id, status: 'Approved', comment: comments[item.id], hrOverride: isFullAdmin }));
-                        } else if (tab === 'leave') {
-                          dispatch(updateLeaveStatus({ id: item.id, status: 'Approved', comment: comments[item.id] }));
-                        } else {
-                          dispatch(updateCorrectionStatus({ id: item.id, status: 'Approved' }));
-                        }
-                        Alert.alert('Approved', 'Decision saved.');
-                      }}
-                      style={{ flex: 1 }}
-                    />
-                    <Button
-                      title="Reject"
-                      variant="danger"
-                      onPress={() => {
-                        if (tab === 'wfh') {
-                          dispatch(updateWFHStatus({ id: item.id, status: 'Rejected', comment: comments[item.id], hrOverride: isFullAdmin }));
-                        } else if (tab === 'leave') {
-                          dispatch(updateLeaveStatus({ id: item.id, status: 'Rejected', comment: comments[item.id] }));
-                        } else {
-                          dispatch(updateCorrectionStatus({ id: item.id, status: 'Rejected' }));
-                        }
-                      }}
-                      style={{ flex: 1 }}
-                    />
-                  </Row>
                 </View>
-              )}
 
-              {item.status !== 'Pending' && (item.managerComment || item.approverComment) && (
-                <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 8, fontStyle: 'italic' }}>
-                  Note: {item.managerComment || item.approverComment}
-                </Text>
-              )}
-            </Card>
-          ))
+                <Row style={{ gap: 8 }}>
+                  <Button
+                    title={processing[l.id] ? '…' : 'Approve'}
+                    onPress={() => handleReview(l.id, 'Approved')}
+                    disabled={!!processing[l.id]}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    title={processing[l.id] ? '…' : 'Reject'}
+                    onPress={() => handleReview(l.id, 'Rejected')}
+                    disabled={!!processing[l.id]}
+                    variant="danger"
+                    style={{ flex: 1 }}
+                  />
+                </Row>
+              </Card>
+            ))
+          )
+        ) : (
+          <EmptyState title="WFH requests" subtitle="WFH approval coming soon." />
         )}
       </ScrollView>
     </View>

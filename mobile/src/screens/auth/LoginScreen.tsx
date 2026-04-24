@@ -5,7 +5,7 @@ import { Button, Input } from '@/components/UI';
 import { palette, useTheme } from '@/theme';
 import { useAppDispatch } from '@/store';
 import { loginSuccess } from '@/store/authSlice';
-import { loginWithCredentials } from '@/services/api';
+import { loginWithCredentials, getEmployees, setAuthToken } from '@/services/api';
 import { signInWithMicrosoft } from '@/services/microsoftAuth';
 
 const LoginScreen: React.FC<any> = ({ navigation }) => {
@@ -35,6 +35,18 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
       const mappedRole = ['Admin', 'HR'].includes(rawRole) ? 'hr'
         : rawRole === 'Manager' ? 'manager'
         : 'employee';
+
+      // Fetch the Employee record's DB UUID (needed for attendance endpoints)
+      // loginWithCredentials already stored the token in AsyncStorage, so getEmployees() will be authenticated
+      let employeeDbId: string | null = null;
+      try {
+        await setAuthToken(data.accessToken);
+        const empData = await getEmployees({ limit: 1 });
+        employeeDbId = empData.data?.[0]?.id ?? null;
+      } catch {
+        // Not critical — screens will fall back to fetching it themselves
+      }
+
       dispatch(loginSuccess({
         user: {
           id: data.user.id,
@@ -52,6 +64,7 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
           shift: 'Flexible' as any,
         },
         token: data.accessToken,
+        employeeDbId,
       }));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Login failed';
@@ -78,6 +91,12 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
       const mappedRoleMs = ['Admin', 'HR'].includes(rawRoleMs) ? 'hr'
         : rawRoleMs === 'Manager' ? 'manager'
         : 'employee';
+      let employeeDbIdMs: string | null = null;
+      try {
+        await setAuthToken(data.accessToken);
+        const empDataMs = await getEmployees({ limit: 1 });
+        employeeDbIdMs = empDataMs.data?.[0]?.id ?? null;
+      } catch { /* not critical */ }
       dispatch(loginSuccess({
         user: {
           id: data.user.id,
@@ -95,6 +114,7 @@ const LoginScreen: React.FC<any> = ({ navigation }) => {
           shift: 'Flexible' as any,
         },
         token: data.accessToken,
+        employeeDbId: employeeDbIdMs,
       }));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Microsoft sign-in failed';
