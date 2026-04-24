@@ -9,10 +9,11 @@ import { AttendanceStatus } from '@/types';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+// Use UTC to display times correctly (eSSL stores IST as UTC on Azure server)
 function fmtTime(iso: string | null): string {
   if (!iso) return '--:--';
   const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
 }
 
 const EmployeeAttendanceProfileScreen: React.FC = () => {

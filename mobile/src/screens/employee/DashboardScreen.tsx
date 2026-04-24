@@ -270,12 +270,13 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
       setDbPunchedIn(data.isPunchedIn);
       setDbPunchedOut(data.isPunchedOut);
       if (data.log?.punchIn) {
+        // Use UTC: eSSL stores IST as UTC on Azure server
         const t = new Date(data.log.punchIn);
-        setDbCheckInTime(`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`);
+        setDbCheckInTime(`${String(t.getUTCHours()).padStart(2,'0')}:${String(t.getUTCMinutes()).padStart(2,'0')}`);
       }
       if (data.log?.punchOut) {
         const t = new Date(data.log.punchOut);
-        setDbCheckOutTime(`${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`);
+        setDbCheckOutTime(`${String(t.getUTCHours()).padStart(2,'0')}:${String(t.getUTCMinutes()).padStart(2,'0')}`);
       }
     }).catch(() => { /* offline — use Redux state */ });
 

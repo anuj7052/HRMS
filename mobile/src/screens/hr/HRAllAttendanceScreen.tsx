@@ -298,8 +298,16 @@ const HRAllAttendanceScreen: React.FC = () => {
                 </Card>
               ) : (
                 dayGrouped.map((item) => {
-                  const fmt = (iso: string | null) =>
-                    iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+                  // Use UTC to display times correctly (eSSL stores IST as UTC on Azure server)
+                  const fmt = (iso: string | null) => {
+                    if (!iso) return '—';
+                    const d = new Date(iso);
+                    const h = d.getUTCHours();
+                    const m = String(d.getUTCMinutes()).padStart(2, '0');
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    const h12 = h % 12 === 0 ? 12 : h % 12;
+                    return `${String(h12).padStart(2, '0')}:${m} ${ampm}`;
+                  };
                   const checkIn  = fmt(item.firstIn ?? null);
                   const checkOut = fmt(item.lastOut ?? null);
                   const hasIn    = !!(item.firstIn);

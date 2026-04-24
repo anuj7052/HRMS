@@ -83,7 +83,7 @@ const TeamDashboardScreen: React.FC<any> = ({ navigation }) => {
                   <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.name}</Text>
                   <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
                     {item.empCode} · {item.department}
-                    {item.punchIn ? ` · In: ${new Date(item.punchIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                    {item.punchIn ? (() => { const d = new Date(item.punchIn); return ` · In: ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`; })() : ''}
                   </Text>
                 </View>
               </Row>
