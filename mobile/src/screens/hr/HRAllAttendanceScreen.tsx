@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Avatar, Badge, Card, Row, SectionHeader } from '@/components/UI';
 import { statusColor, useTheme } from '@/theme';
 import { getAttendanceByDate, getMonthlyReport } from '@/services/api';
-import type { AttendanceByDateEntry } from '@/services/api';
+import type { AttendanceByDateEntry, AttendanceDailyBreakdown, MonthlySummaryEntry } from '@/services/api';
 
 type RangeMode = 'Day' | 'Week' | 'Month';
 
@@ -13,6 +13,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DAYS_SHORT = ['Mo','Tu','We','Th','Fr','Sa','Su']; // Mon-first for calendar header
 
 function mondayOfWeek(d: Date): Date {
   const day = d.getDay();
@@ -21,11 +22,6 @@ function mondayOfWeek(d: Date): Date {
   r.setDate(r.getDate() + diff);
   r.setHours(0, 0, 0, 0);
   return r;
-}
-
-interface MonthlySummaryEntry {
-  employeeId: string; name: string; department: string;
-  present: number; late: number; absent: number; leave: number; totalWorkHours: string;
 }
 
 const STATUSES = ['All', 'Present', 'Late', 'WFH', 'Leave', 'Absent'] as const;
@@ -44,6 +40,8 @@ const HRAllAttendanceScreen: React.FC = () => {
   const [feedLoading, setFeedLoading] = useState(false);
 
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummaryEntry[]>([]);
+  const [dailyBreakdown, setDailyBreakdown] = useState<AttendanceDailyBreakdown[]>([]);
+  const [selectedCalDay, setSelectedCalDay] = useState<string | null>(null);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
 
   // ── Range bounds ────────────────────────────────────────────────────────────
@@ -83,6 +81,7 @@ const HRAllAttendanceScreen: React.FC = () => {
         dept !== 'All' ? dept : undefined,
       );
       setMonthlySummary(res.summary);
+      setDailyBreakdown(res.dailyBreakdown ?? []);
     } catch { /* ignore */ } finally { setMonthlyLoading(false); }
   }, [anchor, dept]);
 
@@ -397,10 +396,133 @@ const HRAllAttendanceScreen: React.FC = () => {
             </>
           )}
 
-          {/* ── MONTH VIEW ──────────────────────────────────────────────── */}
+          {/* ── MONTH VIEW — Calendar Grid ───────────────────────────── */}
           {mode === 'Month' && (
             <>
-              <SectionHeader title={`${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()} — ${filteredMonthly.length} employees`} />
+              <SectionHeader title={`${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`} />
+
+              {/* Calendar Grid */}
+              <Card style={{ marginBottom: 12, padding: 8 }}>
+                {/* Day-of-week header (Mon → Sun) */}
+                <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+                  {DAYS_SHORT.map((d) => (
+                    <View key={d} style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ color: t.colors.textMuted, fontSize: 10, fontWeight: '700' }}>{d}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Calendar cells */}
+                {(() => {
+                  const year  = anchor.getFullYear();
+                  const month = anchor.getMonth();
+                  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+                  const daysInMonth = new Date(year, month + 1, 0).getDate();
+                  // offset so Monday=0
+                  const offset = firstDay === 0 ? 6 : firstDay - 1;
+                  const totalCells = Math.ceil((offset + daysInMonth) / 7) * 7;
+                  const cells: (number | null)[] = [
+                    ...Array(offset).fill(null),
+                    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+                    ...Array(totalCells - offset - daysInMonth).fill(null),
+                  ];
+                  const rows: (number | null)[][] = [];
+                  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+
+                  return rows.map((row, ri) => (
+                    <View key={ri} style={{ flexDirection: 'row', marginBottom: 4 }}>
+                      {row.map((day, ci) => {
+                        if (!day) return <View key={ci} style={{ flex: 1 }} />;
+                        const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
+                        const bd = dailyBreakdown.find((b) => b.date === dateStr);
+                        const isToday = dateStr === ymd(new Date());
+                        const isSelected = dateStr === selectedCalDay;
+                        const isWeekend = row.findIndex((_, i2) => i2 === ci) >= 5; // Sa, Su are indices 5,6
+
+                        // Color based on attendance
+                        let cellBg = t.colors.surface;
+                        let dotColor = 'transparent';
+                        if (bd) {
+                          if (bd.present > 0 || bd.late > 0) {
+                            const absentRatio = bd.absent / (bd.present + bd.late + bd.absent || 1);
+                            if (absentRatio > 0.5) { dotColor = '#EF4444'; cellBg = '#EF444415'; }
+                            else if (bd.late > bd.present) { dotColor = '#F59E0B'; cellBg = '#F59E0B15'; }
+                            else { dotColor = '#22C55E'; cellBg = '#22C55E15'; }
+                          } else if (isWeekend) {
+                            cellBg = t.colors.border + '30';
+                          }
+                        }
+
+                        return (
+                          <Pressable
+                            key={ci}
+                            onPress={() => setSelectedCalDay(isSelected ? null : dateStr)}
+                            style={{
+                              flex: 1, alignItems: 'center', paddingVertical: 6, marginHorizontal: 1,
+                              borderRadius: 8,
+                              backgroundColor: isSelected ? t.colors.primary + '30' : cellBg,
+                              borderWidth: isToday ? 2 : isSelected ? 1.5 : 0,
+                              borderColor: isToday ? t.colors.primary : t.colors.primary + '80',
+                            }}
+                          >
+                            <Text style={{
+                              fontSize: 13, fontWeight: isToday ? '900' : '600',
+                              color: isToday ? t.colors.primary : isWeekend ? t.colors.textMuted : t.colors.text,
+                            }}>
+                              {day}
+                            </Text>
+                            {dotColor !== 'transparent' && (
+                              <View style={{
+                                width: 5, height: 5, borderRadius: 3,
+                                backgroundColor: dotColor, marginTop: 2,
+                              }} />
+                            )}
+                            {bd && (
+                              <Text style={{ fontSize: 8, color: t.colors.textMuted, marginTop: 1 }}>
+                                {bd.present + bd.late}
+                              </Text>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ));
+                })()}
+
+                {/* Legend */}
+                <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'center', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: t.colors.border }}>
+                  {[{ color: '#22C55E', label: 'Good' }, { color: '#F59E0B', label: 'Late' }, { color: '#EF4444', label: 'Low' }].map((l) => (
+                    <View key={l.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: l.color }} />
+                      <Text style={{ fontSize: 10, color: t.colors.textMuted }}>{l.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Card>
+
+              {/* Selected day detail — show employee summary */}
+              {selectedCalDay && (() => {
+                const bd = dailyBreakdown.find((b) => b.date === selectedCalDay);
+                return (
+                  <Card style={{ marginBottom: 10 }}>
+                    <Text style={{ color: t.colors.text, fontWeight: '800', marginBottom: 6 }}>
+                      {new Date(selectedCalDay + 'T12:00:00').toDateString()}
+                    </Text>
+                    {bd ? (
+                      <Row style={{ gap: 8, flexWrap: 'wrap' }}>
+                        <Badge label={`Present: ${bd.present}`} color="#22C55E" />
+                        <Badge label={`Late: ${bd.late}`}       color="#F59E0B" />
+                        <Badge label={`Absent: ${bd.absent}`}   color="#EF4444" />
+                      </Row>
+                    ) : (
+                      <Text style={{ color: t.colors.textMuted, fontSize: 13 }}>No records</Text>
+                    )}
+                  </Card>
+                );
+              })()}
+
+              {/* Monthly summary list */}
+              <SectionHeader title={`Employee Summary — ${filteredMonthly.length} staff`} />
               {filteredMonthly.length === 0 ? (
                 <Card>
                   <Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 20 }}>No records for this month</Text>

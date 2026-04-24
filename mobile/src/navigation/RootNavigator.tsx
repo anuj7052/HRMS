@@ -297,8 +297,9 @@ export const RootNavigator: React.FC = () => {
         // Database roles: Admin, HR → HR navigator (full access)
         // Database roles: Manager → Manager navigator
         // effectiveRole from jobRoleToSystemRole: 'hr' | 'manager' | 'employee'
-        const isHR = effectiveRole === 'hr' || effectiveRole === 'HR' || effectiveRole === 'Admin';
-        const isManager = effectiveRole === 'manager' || effectiveRole === 'Manager';
+        const roleStr = String(effectiveRole).toLowerCase();
+        const isHR = roleStr === 'hr' || roleStr === 'admin';
+        const isManager = roleStr === 'manager';
         if (isHR) return <HRNavigator />;
         if (isManager) return <ManagerNavigator />;
         return <EmployeeNavigator />;

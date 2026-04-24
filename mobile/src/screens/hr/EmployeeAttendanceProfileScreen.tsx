@@ -46,7 +46,7 @@ const EmployeeAttendanceProfileScreen: React.FC = () => {
           const match = r.data.find((e) => e.employeeId === empCodeParam || e.employeeId === empCodeParam.trim());
           if (match) {
             setEmpDbId(match.id);
-            if (!empName) setEmpName(match.user.name);
+            if (!empName) setEmpName(match.user?.name ?? match.id);
           }
         })
         .catch(() => {});

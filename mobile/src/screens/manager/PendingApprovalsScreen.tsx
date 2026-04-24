@@ -91,28 +91,27 @@ const PendingApprovalsScreen: React.FC = () => {
                   <Badge label={l.status} color={statusColor(l.status as any, t)} />
                 </Row>
 
-                <Input
-                  value={comments[l.id] ?? ''}
-                  onChangeText={(v) => setComments((prev) => ({ ...prev, [l.id]: v }))}
-                  placeholder="Comment (optional)"
-                  style={{ marginBottom: 10 }}
-                />
+                <View style={{ marginBottom: 10 }}>
+                  <Input
+                    value={comments[l.id] ?? ''}
+                    onChangeText={(v) => setComments((prev) => ({ ...prev, [l.id]: v }))}
+                    placeholder="Comment (optional)"
+                  />
+                </View>
 
                 <Row style={{ gap: 8 }}>
                   <Button
-                    label={processing[l.id] ? '…' : 'Approve'}
+                    title={processing[l.id] ? '…' : 'Approve'}
                     onPress={() => handleReview(l.id, 'Approved')}
                     disabled={!!processing[l.id]}
                     style={{ flex: 1, backgroundColor: '#16A34A' }}
-                    textStyle={{ color: '#fff' }}
                   />
                   <Button
-                    label={processing[l.id] ? '…' : 'Reject'}
+                    title={processing[l.id] ? '…' : 'Reject'}
                     onPress={() => handleReview(l.id, 'Rejected')}
                     disabled={!!processing[l.id]}
-                    variant="outline"
-                    style={{ flex: 1, borderColor: t.colors.danger }}
-                    textStyle={{ color: t.colors.danger }}
+                    variant="danger"
+                    style={{ flex: 1 }}
                   />
                 </Row>
               </Card>

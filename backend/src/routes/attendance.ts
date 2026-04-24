@@ -751,6 +751,51 @@ router.post(
   }
 );
 
+// ─── GET /api/attendance/by-date ─────────────────────────────────────────────
+// ?date=YYYY-MM-DD  OR  ?from=YYYY-MM-DD&to=YYYY-MM-DD
+router.get('/by-date', requireRole(['Admin', 'HR']), async (req: AuthRequest, res: Response): Promise<void> => {
+  const { date, from, to } = req.query as { date?: string; from?: string; to?: string };
+
+  let startDate: Date;
+  let endDate: Date;
+
+  if (date) {
+    startDate = new Date(`${date}T00:00:00.000Z`);
+    endDate   = new Date(`${date}T23:59:59.999Z`);
+  } else if (from && to) {
+    startDate = new Date(`${from}T00:00:00.000Z`);
+    endDate   = new Date(`${to}T23:59:59.999Z`);
+  } else {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    startDate = today;
+    endDate   = new Date(today);
+    endDate.setUTCHours(23, 59, 59, 999);
+  }
+
+  const logs = await prisma.attendanceLog.findMany({
+    where: { date: { gte: startDate, lte: endDate } },
+    include: { employee: { include: { user: { select: { name: true } } } } },
+    orderBy: [{ date: 'asc' }, { punchIn: 'asc' }],
+  });
+
+  const feed = logs.map((l) => ({
+    id:            l.id,
+    empCode:       l.employee.employeeId,
+    employeeDbId:  l.employee.id,
+    name:          l.employee.user?.name || `Employee ${l.employee.employeeId}`,
+    department:    l.employee.department,
+    date:          l.date.toISOString().split('T')[0],
+    punchIn:       l.punchIn?.toISOString()  ?? null,
+    punchOut:      l.punchOut?.toISOString() ?? null,
+    workHours:     l.workHours,
+    status:        l.status,
+    source:        l.source,
+  }));
+
+  res.json({ feed, total: feed.length });
+});
+
 // ─── GET /api/attendance/live-feed ───────────────────────────────────────────
 // Returns today's attendance with employee names for the live attendance board
 router.get('/live-feed', requireRole(['Admin', 'HR']), async (_req: AuthRequest, res: Response): Promise<void> => {

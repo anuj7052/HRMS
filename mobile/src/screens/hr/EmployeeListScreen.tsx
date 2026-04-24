@@ -69,9 +69,9 @@ const EmployeeListScreen: React.FC<any> = ({ navigation }) => {
             <Card>
               <Row style={{ justifyContent: 'space-between' }}>
                 <Row style={{ flex: 1 }}>
-                  <Avatar name={item.user.name} />
+                  <Avatar name={item.user?.name ?? ''} />
                   <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.user.name}</Text>
+                    <Text style={{ color: t.colors.text, fontWeight: '700' }}>{item.user?.name ?? ''}</Text>
                     <Text style={{ color: t.colors.textMuted, fontSize: 12, marginTop: 2 }}>
                       {item.employeeId} · {item.department}
                     </Text>
@@ -86,7 +86,7 @@ const EmployeeListScreen: React.FC<any> = ({ navigation }) => {
               {/* Action buttons */}
               <Row style={{ gap: 8, marginTop: 12 }}>
                 <Pressable
-                  onPress={() => navigation.navigate('EmployeeAttendanceProfile', { employeeId: item.id, name: item.user.name })}
+                  onPress={() => navigation.navigate('EmployeeAttendanceProfile', { employeeId: item.id, name: item.user?.name ?? '' })}
                   style={{
                     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
                     paddingVertical: 8, borderRadius: 8, gap: 4,

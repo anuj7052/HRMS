@@ -417,23 +417,54 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
             loading={checkInLoading}
           />
         ) : (
-          <View style={{
-            backgroundColor: 'rgba(255,255,255,0.13)', borderRadius: 20,
-            padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12,
-          }}>
-            <Ionicons
-              name={user.workMode === 'WFO' ? 'finger-print-outline' : user.workMode === 'Hybrid' && appCheckInEnabled ? 'home-outline' : 'finger-print-outline'}
-              size={32}
-              color="rgba(255,255,255,0.6)"
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>
-                {checkInBlockedReason.title}
-              </Text>
-              <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 3 }}>
-                {checkInBlockedReason.sub}
-              </Text>
-            </View>
+          <View>
+            {/* Show ESSL first check-in / last check-out if data exists */}
+            {(dbCheckInTime || dbCheckOutTime) ? (
+              <View style={{
+                backgroundColor: 'rgba(255,255,255,0.13)', borderRadius: 20,
+                padding: 16, alignItems: 'center', gap: 8,
+              }}>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+                  Today via Biometric
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 24, marginTop: 4 }}>
+                  <View style={{ alignItems: 'center' }}>
+                    <Ionicons name="log-in-outline" size={22} color="#4ADE80" />
+                    <Text style={{ color: '#4ADE80', fontSize: 22, fontWeight: '900', marginTop: 4 }}>
+                      {dbCheckInTime ?? '—'}
+                    </Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>First Check-In</Text>
+                  </View>
+                  <View style={{ width: 1, backgroundColor: 'rgba(255,255,255,0.15)', marginVertical: 4 }} />
+                  <View style={{ alignItems: 'center' }}>
+                    <Ionicons name="log-out-outline" size={22} color="#F87171" />
+                    <Text style={{ color: dbCheckOutTime ? '#F87171' : 'rgba(255,255,255,0.3)', fontSize: 22, fontWeight: '900', marginTop: 4 }}>
+                      {dbCheckOutTime ?? 'In Office'}
+                    </Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>Last Check-Out</Text>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={{
+                backgroundColor: 'rgba(255,255,255,0.13)', borderRadius: 20,
+                padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12,
+              }}>
+                <Ionicons
+                  name={user.workMode === 'WFO' ? 'finger-print-outline' : 'home-outline'}
+                  size={32}
+                  color="rgba(255,255,255,0.6)"
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>
+                    {checkInBlockedReason.title}
+                  </Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 3 }}>
+                    {checkInBlockedReason.sub}
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         )}
       </View>

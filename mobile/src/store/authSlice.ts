@@ -7,6 +7,7 @@ interface AuthState {
   token: string | null;
   loading: boolean;
   error: string | null;
+  employeeDbId: string | null;
 }
 
 const initialState: AuthState = {
@@ -14,6 +15,7 @@ const initialState: AuthState = {
   token: null,
   loading: false,
   error: null,
+  employeeDbId: null,
 };
 
 const authSlice = createSlice({
