@@ -17,7 +17,7 @@ router.get('/', async (_req, res: Response): Promise<void> => {
 // ─── PUT /api/settings ───────────────────────────────────────────────────────
 router.put('/', requireRole(['Admin']), async (req: AuthRequest, res: Response): Promise<void> => {
   const settings = await prisma.appSettings.findFirst();
-  const allowed = ['allowedEmailDomains','shiftStart','shiftEnd','lateThresholdMinutes','halfDayThresholdHours','workingDays','holidays','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailNotificationsEnabled'];
+  const allowed = ['allowedEmailDomains','shiftStart','shiftEnd','lateThresholdMinutes','halfDayThresholdHours','workingDays','holidays','smtpHost','smtpPort','smtpUser','smtpPass','smtpFrom','emailNotificationsEnabled','appCheckInEnabled','appCheckInScope','appCheckInDepartments','appCheckInEmployeeIds'];
   const data: Record<string, unknown> = {};
   for (const key of allowed) { if ((req.body as Record<string,unknown>)[key] !== undefined) data[key] = (req.body as Record<string,unknown>)[key]; }
   if (settings) await prisma.appSettings.update({ where: { id: settings.id }, data: data as any });

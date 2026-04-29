@@ -328,6 +328,11 @@ model AppSettings {
   smtpPass                  String   @default("")
   smtpFrom                  String   @default("")
   emailNotificationsEnabled Boolean  @default(false)
+  // App check-in control
+  appCheckInEnabled         Boolean  @default(true)
+  appCheckInScope           String   @default("global")  // "global" | "department" | "employee"
+  appCheckInDepartments     Json     @default("[]")       // string[] — used when scope=department
+  appCheckInEmployeeIds     Json     @default("[]")       // string[] — used when scope=employee
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 }

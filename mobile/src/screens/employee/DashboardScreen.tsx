@@ -4,8 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Badge, Card, Row } from '@/components/UI';
 import { palette, statusColor, useTheme } from '@/theme';
 import { useAppDispatch, useAppSelector } from '@/store';
-import { checkIn, checkOut } from '@/store/dataSlice';
-import { getTodayStatus, punchIn, punchOut, getMyWFHRequests } from '@/services/api';
+import { checkIn, checkOut, setCheckInControl } from '@/store/dataSlice';
+import { getTodayStatus, punchIn, punchOut, getMyWFHRequests, getCheckInSettings } from '@/services/api';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -242,7 +242,7 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
   const attendance = useAppSelector((s) => s.data.attendance);
   const notifications = useAppSelector((s) => s.data.notifications);
   const balances = useAppSelector((s) => s.data.leaveBalances);
-  const appCheckInEnabled = useAppSelector((s) => s.data.appCheckInEnabled);
+  const checkInControl = useAppSelector((s) => s.data.checkInControl);
 
   const [checkInLoading, setCheckInLoading] = useState(false);
   // PostgreSQL-backed today status
@@ -285,29 +285,36 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
       const todayApproved = requests.some((r) => r.date.startsWith(today));
       setTodayWFHApproved(todayApproved);
     }).catch(() => { /* offline */ });
+
+    // Load HR check-in control settings from backend
+    getCheckInSettings().then((s) => {
+      dispatch(setCheckInControl(s));
+    }).catch(() => { /* offline — use Redux default */ });
   }, [today]);
 
   // ── Work Mode Engine ────────────────────────────────────────────────────
   // WFO  → always use ESSL biometric device (app check-in never shown)
-  // WFH  → show if HR has globally enabled app check-in
-  // Hybrid/WFO → show if today has an approved WFH request from backend
+  // HR-controlled: check-in visibility by scope (global / department / employee)
   const canCheckInViaApp = useMemo(() => {
-    if (!appCheckInEnabled) return false;
-    // Backend WFH approval for today → always allow app check-in
-    if (todayWFHApproved) return true;
-    if (user.workMode === 'WFO') return false;
-    if (user.workMode === 'WFH') return true;
+    if (!checkInControl.enabled) return false;
+    if (checkInControl.scope === 'global') return true;
+    if (checkInControl.scope === 'department')
+      return checkInControl.departments.includes(user.department ?? '');
+    if (checkInControl.scope === 'employee')
+      return checkInControl.employeeIds.includes(user.id);
     return false;
-  }, [appCheckInEnabled, user.workMode, todayWFHApproved]);
+  }, [checkInControl, user.id, user.department]);
 
   // Reason text shown when check-in is blocked
   const checkInBlockedReason = useMemo(() => {
-    if (user.workMode === 'WFO')
-      return { title: 'Office attendance via biometric only', sub: 'Please use your ESSL device to mark attendance.' };
-    if (!appCheckInEnabled)
-      return { title: 'App check-in is currently disabled', sub: 'Please use your biometric device to mark attendance.' };
-    return { title: 'No approved WFH for today', sub: 'Apply for WFH — once approved, check-in buttons will appear here.' };
-  }, [user.workMode, appCheckInEnabled]);
+    if (!checkInControl.enabled)
+      return { title: 'App check-in is currently disabled', sub: 'Please contact HR to enable app attendance.' };
+    if (checkInControl.scope === 'department')
+      return { title: 'App check-in not enabled for your department', sub: 'Contact HR to enable it for your department.' };
+    if (checkInControl.scope === 'employee')
+      return { title: 'App check-in not enabled for you', sub: 'Contact HR to get access.' };
+    return { title: 'App check-in is disabled', sub: 'Please use your biometric device.' };
+  }, [checkInControl]);
 
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';

@@ -401,3 +401,36 @@ export async function reviewLeave(
 ): Promise<{ message: string }> {
   return api.put<{ message: string }>(`/leaves/${id}/review`, { status, ...(comment ? { comment } : {}) });
 }
+
+// ── Check-in control settings ─────────────────────────────────────────────────
+
+export interface CheckInControlSettings {
+  enabled: boolean;
+  scope: 'global' | 'department' | 'employee';
+  departments: string[];
+  employeeIds: string[];
+}
+
+export async function getCheckInSettings(): Promise<CheckInControlSettings> {
+  const s = await api.get<{
+    appCheckInEnabled?: boolean;
+    appCheckInScope?: string;
+    appCheckInDepartments?: string[];
+    appCheckInEmployeeIds?: string[];
+  }>('/settings');
+  return {
+    enabled: s.appCheckInEnabled ?? true,
+    scope: (s.appCheckInScope as CheckInControlSettings['scope']) ?? 'global',
+    departments: (s.appCheckInDepartments as string[]) ?? [],
+    employeeIds: (s.appCheckInEmployeeIds as string[]) ?? [],
+  };
+}
+
+export async function saveCheckInSettings(ctrl: CheckInControlSettings): Promise<void> {
+  await api.put('/settings', {
+    appCheckInEnabled: ctrl.enabled,
+    appCheckInScope: ctrl.scope,
+    appCheckInDepartments: ctrl.departments,
+    appCheckInEmployeeIds: ctrl.employeeIds,
+  });
+}

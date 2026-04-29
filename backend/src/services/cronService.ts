@@ -28,6 +28,9 @@ export function startCronJobs(): void {
             if (device.etlPassword) {
               try { password = decryptFromStorage(device.etlPassword); } catch { /* bad creds */ }
             }
+            // Fallback to env vars if device-level credentials not set
+            const username = device.etlUsername ?? process.env.ESSL_ETL_USERNAME ?? undefined;
+            if (!password) password = process.env.ESSL_ETL_PASSWORD ?? undefined;
             const baseUrl = `http://${device.ip}:${device.port}`;
 
             console.log(`[AutoSync] ${device.name}: fetching from ${baseUrl} since ${device.lastEtlSync?.toISOString() ?? 'beginning of month'}`);
@@ -35,7 +38,7 @@ export function startCronJobs(): void {
               baseUrl,
               device.serialNumber,
               device.lastEtlSync ?? undefined,
-              device.etlUsername ?? undefined,
+              username,
               password,
             );
 

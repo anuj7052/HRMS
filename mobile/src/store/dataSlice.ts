@@ -39,8 +39,13 @@ interface DataState {
   shifts: Shift[];
   devices: ESSLDevice[];
   notificationPrefs: Record<string, boolean>;
-  /** HR-controlled: whether employees can check in/out via app */
-  appCheckInEnabled: boolean;
+  /** HR-controlled check-in visibility */
+  checkInControl: {
+    enabled: boolean;
+    scope: 'global' | 'department' | 'employee';
+    departments: string[];   // used when scope === 'department'
+    employeeIds: string[];   // used when scope === 'employee'
+  };
 }
 
 const initialState: DataState = {
@@ -62,7 +67,12 @@ const initialState: DataState = {
     correction: true,
     announcement: true,
   },
-  appCheckInEnabled: true,
+  checkInControl: {
+    enabled: true,
+    scope: 'global',
+    departments: [],
+    employeeIds: [],
+  },
 };
 
 const dataSlice = createSlice({
@@ -293,8 +303,8 @@ const dataSlice = createSlice({
         if (d.status !== 'error') d.status = 'online';
       });
     },
-    setAppCheckInEnabled(state, action: PayloadAction<boolean>) {
-      state.appCheckInEnabled = action.payload;
+    setCheckInControl(state, action: PayloadAction<Partial<DataState['checkInControl']>>) {
+      state.checkInControl = { ...state.checkInControl, ...action.payload };
     },
   },
 });
@@ -323,7 +333,7 @@ export const {
   removeShift,
   syncDevice,
   syncAllDevices,
-  setAppCheckInEnabled,
+  setCheckInControl,
 } = dataSlice.actions;
 
 export default dataSlice.reducer;

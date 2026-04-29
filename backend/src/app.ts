@@ -27,6 +27,8 @@ const DEFAULT_DEV_ORIGINS = [
   'http://127.0.0.1:5173',
   'http://localhost:8081',
   'http://127.0.0.1:8081',
+  'http://localhost:8082',
+  'http://127.0.0.1:8082',
   'http://localhost:19006',
   'http://127.0.0.1:19006',
 ];
@@ -36,7 +38,7 @@ const EXTRA_ORIGINS = (process.env.CLIENT_URL || '')
   .filter(Boolean);
 const ALLOWED_ORIGINS = new Set<string>([...DEFAULT_DEV_ORIGINS, ...EXTRA_ORIGINS]);
 // Match LAN IPs on common dev ports (Vite 5173, Metro 8081, Expo 19006).
-const LAN_ORIGIN_REGEX = /^https?:\/\/(\d{1,3}\.){3}\d{1,3}(:(5173|8081|19006|5000))?$/;
+const LAN_ORIGIN_REGEX = /^https?:\/\/(\d{1,3}\.){3}\d{1,3}(:(5173|8081|8082|19006|5000))?$/;
 
 app.use(cors({
   origin: (origin, cb) => {
