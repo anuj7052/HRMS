@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ChevronLeft, ChevronRight, Clock, Loader2, X,
   Users, User, RefreshCw, Search, MapPin, CalendarDays,
@@ -85,6 +85,7 @@ export default function AttendancePage() {
   const [summarySearch, setSummarySearch] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [lastSyncMsg, setLastSyncMsg] = useState('');
+  const liveRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isAdminOrHR = user?.role === 'Admin' || user?.role === 'HR' || user?.role === 'Manager';
 
@@ -113,6 +114,14 @@ export default function AttendancePage() {
   }, [isAdminOrHR, month, year]);
 
   useEffect(() => { if (viewMode === 'summary') fetchSummary(); }, [fetchSummary, viewMode]);
+
+  // Live 5-second refresh of summary while viewing current month
+  const todayIsCurrentMonth = year === today.getFullYear() && month === today.getMonth() + 1;
+  useEffect(() => {
+    if (!isAdminOrHR || !todayIsCurrentMonth || viewMode !== 'summary') return;
+    liveRefreshRef.current = setInterval(() => fetchSummary(), 5000);
+    return () => { if (liveRefreshRef.current) clearInterval(liveRefreshRef.current); };
+  }, [isAdminOrHR, todayIsCurrentMonth, viewMode, fetchSummary]);
 
   const fetchLogs = useCallback(async () => {
     if (!selectedEmployee) return;

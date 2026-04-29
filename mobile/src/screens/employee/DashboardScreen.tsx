@@ -5,7 +5,8 @@ import { Badge, Card, Row } from '@/components/UI';
 import { palette, statusColor, useTheme } from '@/theme';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { checkIn, checkOut, setCheckInControl } from '@/store/dataSlice';
-import { getTodayStatus, punchIn, punchOut, getMyWFHRequests, getCheckInSettings } from '@/services/api';
+import { setEmployeeDbId } from '@/store/authSlice';
+import { getTodayStatus, punchIn, punchOut, getMyWFHRequests, getCheckInSettings, getEmployeeProfile } from '@/services/api';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -290,6 +291,11 @@ const DashboardScreen: React.FC<any> = ({ navigation }) => {
     getCheckInSettings().then((s) => {
       dispatch(setCheckInControl(s));
     }).catch(() => { /* offline — use Redux default */ });
+
+    // Fetch employee DB ID and store in Redux for attendance screens
+    getEmployeeProfile().then((profile) => {
+      if (profile?.id) dispatch(setEmployeeDbId(profile.id));
+    }).catch(() => { /* offline */ });
   }, [today]);
 
   // ── Work Mode Engine ────────────────────────────────────────────────────

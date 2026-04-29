@@ -293,6 +293,15 @@ export default function DashboardPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
   useWebSocket('attendance:update', useCallback(() => { fetchData(); }, [fetchData]));
 
+  // 5-second live polling for HR/Admin to keep today's stats fresh
+  useEffect(() => {
+    if (!isAdminOrHR) return;
+    const id = setInterval(() => {
+      api.get('/attendance/today').then((res) => setSummary(res.data)).catch(() => {});
+    }, 5000);
+    return () => clearInterval(id);
+  }, [isAdminOrHR]);
+
   const greet = (() => {
     const h = new Date().getHours();
     return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';

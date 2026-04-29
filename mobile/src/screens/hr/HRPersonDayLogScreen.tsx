@@ -11,8 +11,8 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar, Badge, Card, Row } from '@/components/UI';
 import { palette, statusColor, useTheme } from '@/theme';
-import { getAttendanceByDate } from '@/services/api';
-import type { AttendanceByDateEntry } from '@/services/api';
+import { getAttendanceByDate, getRawPunches } from '@/services/api';
+import type { AttendanceByDateEntry, RawPunchEntry } from '@/services/api';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -42,6 +42,37 @@ function duration(inIso: string | null, outIso: string | null): string {
   return fmtHours(diff);
 }
 
+/** Human-readable punch type label */
+function punchLabel(punchType: number): string {
+  switch (punchType) {
+    case 0: return 'Check In';
+    case 1: return 'Check Out';
+    case 4: return 'Break Out';
+    case 5: return 'Break In';
+    default: return 'Punch';
+  }
+}
+
+function punchIcon(punchType: number): string {
+  switch (punchType) {
+    case 0: return 'log-in-outline';
+    case 1: return 'log-out-outline';
+    case 4: return 'cafe-outline';
+    case 5: return 'return-up-back-outline';
+    default: return 'radio-button-on-outline';
+  }
+}
+
+function punchColor(punchType: number, primaryColor: string): string {
+  switch (punchType) {
+    case 0: return '#22C55E';
+    case 1: return '#EF4444';
+    case 4: return '#F59E0B';
+    case 5: return '#3B82F6';
+    default: return primaryColor;
+  }
+}
+
 const REFRESH_INTERVAL = 5000; // 5 seconds
 
 const HRPersonDayLogScreen: React.FC<any> = ({ route, navigation }) => {
@@ -53,6 +84,7 @@ const HRPersonDayLogScreen: React.FC<any> = ({ route, navigation }) => {
   };
 
   const [logs, setLogs] = useState<AttendanceByDateEntry[]>([]);
+  const [rawPunches, setRawPunches] = useState<RawPunchEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -60,8 +92,8 @@ const HRPersonDayLogScreen: React.FC<any> = ({ route, navigation }) => {
   const fetchLogs = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
+      // Fetch aggregated attendance log (first-in / last-out summary)
       const res = await getAttendanceByDate({ date: routeDate });
-      // Filter only this employee's logs, sort by punchIn asc
       const mine = res.feed
         .filter((r) => r.employeeDbId === employeeDbId)
         .sort((a, b) => {
@@ -70,6 +102,11 @@ const HRPersonDayLogScreen: React.FC<any> = ({ route, navigation }) => {
           return ta - tb;
         });
       setLogs(mine);
+
+      // Fetch all individual raw punch timestamps from biometric device
+      const rawRes = await getRawPunches(employeeDbId, routeDate);
+      setRawPunches(rawRes.punches);
+
       setLastUpdated(new Date());
     } catch { /* ignore */ } finally {
       setLoading(false);
@@ -165,7 +202,7 @@ const HRPersonDayLogScreen: React.FC<any> = ({ route, navigation }) => {
       {/* ── Live indicator ──────────────────────────────────────────────── */}
       <Row style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 14 }}>
-          All Punches  ({logs.length} record{logs.length !== 1 ? 's' : ''})
+          All Punches  ({rawPunches.length} event{rawPunches.length !== 1 ? 's' : ''})
         </Text>
         <Row style={{ gap: 6, alignItems: 'center' }}>
           <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#22C55E' }} />
@@ -178,102 +215,54 @@ const HRPersonDayLogScreen: React.FC<any> = ({ route, navigation }) => {
         </Row>
       </Row>
 
-      {/* ── Punch log list ──────────────────────────────────────────────── */}
-      {logs.length === 0 ? (
+      {/* ── Raw punch timeline ──────────────────────────────────────────── */}
+      {rawPunches.length === 0 ? (
         <Card>
           <Text style={{ color: t.colors.textMuted, textAlign: 'center', padding: 20 }}>
             No punch records found for this date
           </Text>
         </Card>
       ) : (
-        logs.map((log, idx) => {
+        rawPunches.map((punch, idx) => {
           const isFirst = idx === 0;
-          const isLast  = idx === logs.length - 1;
-          const dur     = duration(log.punchIn, log.punchOut);
+          const isLast  = idx === rawPunches.length - 1;
+          const color   = punchColor(punch.punchType, t.colors.primary);
+          const label   = punchLabel(punch.punchType);
+          const icon    = punchIcon(punch.punchType) as any;
 
           return (
-            <View key={log.id} style={{ marginBottom: 8 }}>
+            <View key={punch.id} style={{ marginBottom: 8 }}>
               {/* Timeline connector */}
               {idx > 0 && (
                 <View style={{ width: 2, height: 10, backgroundColor: t.colors.border, marginLeft: 28, marginBottom: 0 }} />
               )}
-              <Card style={{ borderLeftWidth: 3, borderLeftColor: isFirst ? '#22C55E' : isLast && log.punchOut ? '#EF4444' : t.colors.primary }}>
-                <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <View style={{ flex: 1 }}>
-                    {/* Record number */}
-                    <Row style={{ alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                      <View style={{
-                        width: 24, height: 24, borderRadius: 12,
-                        backgroundColor: isFirst ? '#22C55E' : isLast && log.punchOut ? '#EF4444' : t.colors.primary,
-                        alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 11 }}>{idx + 1}</Text>
-                      </View>
-                      <Text style={{ color: t.colors.textMuted, fontSize: 12, fontWeight: '600' }}>
-                        {isFirst ? 'First punch' : isLast ? 'Last punch' : `Punch ${idx + 1}`}
-                      </Text>
-                      {dur && (
-                        <View style={{
-                          backgroundColor: t.colors.primary + '20',
-                          borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2,
-                        }}>
-                          <Text style={{ color: t.colors.primary, fontSize: 10, fontWeight: '700' }}>{dur}</Text>
-                        </View>
-                      )}
-                    </Row>
-
-                    {/* Check-in row */}
-                    <Row style={{ gap: 10, marginBottom: log.punchOut ? 8 : 0 }}>
-                      <View style={{
-                        width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: log.punchIn ? '#22C55E20' : t.colors.surfaceAlt,
-                      }}>
-                        <Ionicons name="log-in-outline" size={18} color={log.punchIn ? '#22C55E' : t.colors.textMuted} />
-                      </View>
-                      <View>
-                        <Text style={{ color: t.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                          Check In
-                        </Text>
-                        <Text style={{ color: log.punchIn ? t.colors.text : t.colors.textMuted, fontWeight: '800', fontSize: 16, marginTop: 1 }}>
-                          {fmtTime(log.punchIn)}
-                        </Text>
-                      </View>
-                    </Row>
-
-                    {/* Check-out row */}
-                    {log.punchOut ? (
-                      <Row style={{ gap: 10 }}>
-                        <View style={{
-                          width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-                          backgroundColor: '#EF444420',
-                        }}>
-                          <Ionicons name="log-out-outline" size={18} color="#EF4444" />
-                        </View>
-                        <View>
-                          <Text style={{ color: t.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                            Check Out
-                          </Text>
-                          <Text style={{ color: t.colors.text, fontWeight: '800', fontSize: 16, marginTop: 1 }}>
-                            {fmtTime(log.punchOut)}
-                          </Text>
-                        </View>
-                      </Row>
-                    ) : (
-                      <Row style={{ gap: 10 }}>
-                        <View style={{
-                          width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-                          backgroundColor: t.colors.surfaceAlt,
-                        }}>
-                          <Ionicons name="ellipsis-horizontal" size={16} color={t.colors.textMuted} />
-                        </View>
-                        <View style={{ justifyContent: 'center' }}>
-                          <Text style={{ color: t.colors.textMuted, fontSize: 13, fontStyle: 'italic' }}>Still inside / not punched out</Text>
-                        </View>
-                      </Row>
-                    )}
+              <Card style={{ borderLeftWidth: 3, borderLeftColor: color }}>
+                <Row style={{ alignItems: 'center', gap: 12 }}>
+                  {/* Index bubble */}
+                  <View style={{
+                    width: 32, height: 32, borderRadius: 16,
+                    backgroundColor: color + '20', alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 2, borderColor: color,
+                  }}>
+                    <Text style={{ color, fontWeight: '900', fontSize: 12 }}>{idx + 1}</Text>
                   </View>
 
-                  <Badge label={log.status} color={sc(log.status)} />
+                  {/* Icon + label */}
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: color + '18',
+                  }}>
+                    <Ionicons name={icon} size={18} color={color} />
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: t.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      {isFirst ? `First · ${label}` : isLast ? `Last · ${label}` : label}
+                    </Text>
+                    <Text style={{ color: t.colors.text, fontWeight: '900', fontSize: 20, marginTop: 2 }}>
+                      {fmtTime(punch.timestamp)}
+                    </Text>
+                  </View>
                 </Row>
               </Card>
             </View>

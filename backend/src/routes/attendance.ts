@@ -829,8 +829,52 @@ router.get('/live-feed', requireRole(['Admin', 'HR']), async (_req: AuthRequest,
   res.json({ feed, date: today.toISOString().split('T')[0], total: feed.length });
 });
 
+// ─── GET /api/attendance/raw-punches/:employeeDbId ───────────────────────────
+// Returns all raw individual punch timestamps for an employee on a specific date
+// ?date=YYYY-MM-DD (defaults to today)
+router.get('/raw-punches/:employeeDbId', requireRole(['Admin', 'HR']), async (req: AuthRequest, res: Response): Promise<void> => {
+  const { employeeDbId } = req.params;
+  const { date } = req.query as { date?: string };
+
+  const targetDate = date || new Date().toISOString().split('T')[0];
+  const startUTC = new Date(`${targetDate}T00:00:00.000Z`);
+  const endUTC   = new Date(`${targetDate}T23:59:59.999Z`);
+
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeDbId },
+    select: { id: true, employeeId: true, devicePin: true, user: { select: { name: true } } },
+  });
+
+  if (!employee) {
+    res.status(404).json({ message: 'Employee not found' });
+    return;
+  }
+
+  // The device stores punches by biometric pin (devicePin takes priority, else employeeId)
+  const empDeviceIds = [employee.employeeId, ...(employee.devicePin ? [employee.devicePin] : [])];
+
+  const punches = await prisma.rawPunchLog.findMany({
+    where: {
+      employeeDeviceId: { in: empDeviceIds },
+      timestamp: { gte: startUTC, lte: endUTC },
+    },
+    orderBy: { timestamp: 'asc' },
+  });
+
+  res.json({
+    employeeDbId: employee.id,
+    name: employee.user?.name ?? employeeDbId,
+    date: targetDate,
+    punches: punches.map((p) => ({
+      id: p.id,
+      timestamp: p.timestamp.toISOString(),
+      punchType: p.punchType, // 0=in, 1=out, 4=break-out, 5=break-in (ZKTeco standard)
+    })),
+    total: punches.length,
+  });
+});
+
 // ─── DELETE /api/attendance/* — BLOCKED ─────────────────────────────────────
-// Attendance data is permanent: records can only be updated/corrected, never deleted.
 router.delete('*', (_req, res: Response): void => {
   res.status(405).json({ message: 'Attendance records cannot be deleted. Use regularize to correct data.' });
 });

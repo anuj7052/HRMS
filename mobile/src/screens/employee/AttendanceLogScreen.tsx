@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Badge, Card, EmptyState, Row } from '@/components/UI';
 import { statusColor, useTheme } from '@/theme';
 import { useAppSelector } from '@/store';
-import { getAttendanceByEmployee, getEmployees, type AttendanceLogAPI } from '@/services/api';
+import { getAttendanceByEmployee, getEmployeeProfile, type AttendanceLogAPI } from '@/services/api';
 
 const FILTERS = ['All', 'Present', 'WFH', 'Leave', 'Absent'] as const;
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -26,10 +26,10 @@ const AttendanceLogScreen: React.FC<any> = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [empId, setEmpId] = useState<string | null>(employeeDbId);
 
-  // Resolve employee DB ID if not yet stored
+  // Resolve the logged-in user's own employee DB ID via profile endpoint
   useEffect(() => {
     if (!empId) {
-      getEmployees({ limit: 1 }).then((r) => setEmpId(r.data?.[0]?.id ?? null)).catch(() => {});
+      getEmployeeProfile().then((profile) => setEmpId(profile.id ?? null)).catch(() => {});
     }
   }, [empId]);
 

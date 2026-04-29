@@ -297,6 +297,29 @@ export async function getAttendanceByDate(
   return api.get(`/attendance/by-date${qs}`);
 }
 
+// ── Raw individual punch timestamps for a specific employee on a date ─────────
+
+export interface RawPunchEntry {
+  id: string;
+  timestamp: string;
+  punchType: number; // 0=check-in, 1=check-out (ZKTeco standard)
+}
+
+export interface RawPunchesResponse {
+  employeeDbId: string;
+  name: string;
+  date: string;
+  punches: RawPunchEntry[];
+  total: number;
+}
+
+export async function getRawPunches(
+  employeeDbId: string,
+  date: string,
+): Promise<RawPunchesResponse> {
+  return api.get(`/attendance/raw-punches/${employeeDbId}?date=${date}`);
+}
+
 // ── Attendance by employee (individual monthly log) ───────────────────────────
 
 export async function getAttendanceByEmployee(
