@@ -853,7 +853,7 @@ router.get('/raw-punches/:employeeDbId', requireRole(['Admin', 'HR']), async (re
   // The device stores punches by biometric pin (devicePin takes priority, else employeeId)
   const empDeviceIds = [employee.employeeId, ...(employee.devicePin ? [employee.devicePin] : [])];
 
-  const punches = await prisma.rawPunchLog.findMany({
+  const rawPunches = await prisma.rawPunchLog.findMany({
     where: {
       employeeDeviceId: { in: empDeviceIds },
       timestamp: { gte: startUTC, lte: endUTC },
@@ -861,15 +861,47 @@ router.get('/raw-punches/:employeeDbId', requireRole(['Admin', 'HR']), async (re
     orderBy: { timestamp: 'asc' },
   });
 
+  let punches: { id: string; timestamp: string; punchType: number }[] = rawPunches.map((p) => ({
+    id: p.id,
+    timestamp: p.timestamp.toISOString(),
+    punchType: p.punchType,
+  }));
+
+  // If no biometric raw punches found, synthesize events from AttendanceLog
+  // (this is the case when eSSL data comes via mobile app push, not direct device push)
+  if (punches.length === 0) {
+    const attLogs = await prisma.attendanceLog.findMany({
+      where: {
+        employeeId: employee.id,
+        date: { gte: startUTC, lte: endUTC },
+      },
+      orderBy: { punchIn: 'asc' },
+    });
+
+    for (const log of attLogs) {
+      if (log.punchIn) {
+        punches.push({
+          id: `${log.id}-in`,
+          timestamp: log.punchIn.toISOString(),
+          punchType: 0, // Check In
+        });
+      }
+      if (log.punchOut) {
+        punches.push({
+          id: `${log.id}-out`,
+          timestamp: log.punchOut.toISOString(),
+          punchType: 1, // Check Out
+        });
+      }
+    }
+    punches.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  }
+
   res.json({
     employeeDbId: employee.id,
     name: employee.user?.name ?? employeeDbId,
     date: targetDate,
-    punches: punches.map((p) => ({
-      id: p.id,
-      timestamp: p.timestamp.toISOString(),
-      punchType: p.punchType, // 0=in, 1=out, 4=break-out, 5=break-in (ZKTeco standard)
-    })),
+    punches,
     total: punches.length,
   });
 });
